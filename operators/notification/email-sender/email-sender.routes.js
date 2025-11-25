@@ -6,8 +6,8 @@
 
 const express = require('express');
 const router = express.Router();
-// const { validateRequest } = require('../../src/utils/validation');
-const { sendSuccessResponse, sendErrorResponse } = require('../../src/utils/response');
+// const { validateRequest } = require('../../../src/utils/validation');
+const { sendSuccessResponse, sendErrorResponse } = require('../../../src/utils/response');
 
 /**
  * 邮件发送处理器

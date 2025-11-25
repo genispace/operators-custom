@@ -4,7 +4,7 @@
 
 const express = require('express');
 const router = express.Router();
-const { sendSuccessResponse, sendErrorResponse } = require('../../src/utils/response');
+const { sendSuccessResponse, sendErrorResponse } = require('../../../src/utils/response');
 
 /**
  * 字符串格式化处理器

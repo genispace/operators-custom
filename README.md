@@ -182,9 +182,21 @@ npm test
 genispace-operators-custom/
 ├── operators/              # Operators directory
 │   ├── text-processing/    # Text processing operators
+│   │   └── string-utils/    # String utilities operator
+│   │       ├── string-utils.operator.js  # Operator configuration
+│   │       └── string-utils.routes.js    # Business logic
 │   ├── data-transform/     # Data transformation operators
+│   │   └── json-transformer/ # JSON transformer operator
+│   │       ├── json-transformer.operator.js  # Operator configuration
+│   │       └── json-transformer.routes.js    # Business logic
 │   ├── notification/       # Notification service operators
+│   │   └── email-sender/   # Email sender operator
+│   │       ├── email-sender.operator.js  # Operator configuration
+│   │       └── email-sender.routes.js    # Business logic
 │   └── platform/          # Platform integration operators
+│       └── genispace-info/ # GeniSpace platform info operator
+│           ├── genispace-info.operator.js  # Operator configuration
+│           └── genispace-info.routes.js    # Business logic
 ├── src/                   # Core framework (no modification needed)
 │   ├── config/            # Configuration management
 │   ├── core/              # Core services (discovery, registry, routing)

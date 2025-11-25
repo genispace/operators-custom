@@ -182,9 +182,21 @@ npm test
 genispace-operators-custom/
 ├── operators/              # 算子目录
 │   ├── text-processing/    # 文本处理算子
+│   │   └── string-utils/    # 字符串工具算子
+│   │       ├── string-utils.operator.js  # 算子配置
+│   │       └── string-utils.routes.js    # 业务逻辑
 │   ├── data-transform/     # 数据转换算子
+│   │   └── json-transformer/ # JSON转换器算子
+│   │       ├── json-transformer.operator.js  # 算子配置
+│   │       └── json-transformer.routes.js    # 业务逻辑
 │   ├── notification/       # 通知服务算子
+│   │   └── email-sender/   # 邮件发送器算子
+│   │       ├── email-sender.operator.js  # 算子配置
+│   │       └── email-sender.routes.js    # 业务逻辑
 │   └── platform/          # 平台集成算子
+│       └── genispace-info/ # GeniSpace平台信息算子
+│           ├── genispace-info.operator.js  # 算子配置
+│           └── genispace-info.routes.js    # 业务逻辑
 ├── src/                   # 核心框架（无需修改）
 │   ├── config/            # 配置管理
 │   ├── core/              # 核心服务（发现、注册、路由）
