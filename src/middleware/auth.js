@@ -7,10 +7,10 @@
  * - GeniSpace: <api_key>
  * 
  * 使用说明：
- * 1. 设置环境变量 GENISPACE_AUTH_ENABLED=true 启用认证
- * 2. API类型算子在运行配置中启用"GeniSpace认证"选项
- * 3. 算子执行时会自动传递System API Key用于身份验证
- * 4. 验证成功后可通过 req.genispace 获取用户信息和API Key信息
+ * 1. API类型算子在运行配置中启用"GeniSpace认证"选项
+ * 2. 算子执行时会自动传递System API Key用于身份验证
+ * 3. 验证成功后可通过 req.genispace 获取用户信息和API Key信息
+ * 4. 需要认证的算子需要自己调用 checkAuth() 方法进行验证
  * 
  * 示例：
  * ```javascript
@@ -78,11 +78,21 @@ function extractApiKey(req) {
  */
 async function validateApiKeyViaSDK(apiKey) {
   try {
+    const baseUrl = config.genispace?.auth?.baseUrl || 'https://api.genispace.com';
+    const timeout = config.genispace?.auth?.timeout || 10000;
+    
+    logger.debug('创建 GeniSpace SDK 客户端', {
+      baseUrl,
+      timeout,
+      envBaseUrl: process.env.GENISPACE_API_BASE_URL,
+      configBaseUrl: config.genispace?.auth?.baseUrl
+    });
+    
     // 创建SDK客户端实例，使用被验证的API Key
     const client = new GeniSpace({
       apiKey: apiKey,
-      baseURL: config.genispace?.auth?.baseUrl || 'https://api.genispace.com',
-      timeout: config.genispace?.auth?.timeout || 10000
+      baseURL: baseUrl,
+      timeout: timeout
     });
 
     // 使用SDK的验证方法验证API Key
@@ -201,72 +211,108 @@ function setCache(apiKey, result) {
 function auth() {
   return async (req, res, next) => {
     try {
-      // 如果认证未启用，直接通过
-      if (!config.genispace?.auth?.enabled) {
-        return next();
-      }
-
+      const apiPrefix = config.apiPrefix || '/api';
+      
       // 公开路径
       const publicPaths = [
-        '/',
+        apiPrefix,
         '/health',
-        '/api/docs',
-        '/api/docs.json',
-        '/api/operators'
+        `${apiPrefix}/docs`,
+        `${apiPrefix}/docs.json`,
+        `${apiPrefix}/operators`
       ];
 
       if (publicPaths.includes(req.path) || 
-          req.path.startsWith('/api/docs/') ||
-          /^\/api\/operators\/[^\/]+\/[^\/]+\/definition$/.test(req.path)) {
+          req.path.startsWith(`${apiPrefix}/docs/`) ||
+          new RegExp(`^${apiPrefix}/operators/[^/]+/[^/]+/definition$`).test(req.path)) {
         return next();
       }
 
-      // 只对 /api/ 路径认证
-      if (!req.path.startsWith('/api/')) {
+      // 只对 API 前缀路径处理
+      if (!req.path.startsWith(apiPrefix)) {
         return next();
       }
 
       // 提取 API Key
       const apiKey = extractApiKey(req);
-      
-      if (!apiKey) {
-        return res.status(401).json({
-          success: false,
-          error: '缺少 API Key',
-          message: '请在 Authorization 头中提供 API Key'
-        });
-      }
 
-      // 检查缓存
-      let authResult = getCache(apiKey);
-      
-      if (!authResult) {
-        authResult = await validateApiKey(apiKey);
-        
-        if (authResult && authResult.success) {
-          setCache(apiKey, authResult);
+      // 如果存在 API Key，尝试验证并设置 req.genispace
+      // 算子自己会通过 checkAuth 方法判断是否需要认证
+      if (apiKey) {
+        try {
+          // 记录验证开始
+          logger.debug('开始验证 API Key', {
+            path: req.path,
+            apiKeyPrefix: apiKey.substring(0, 8) + '...',
+            baseUrl: config.genispace?.auth?.baseUrl,
+            timeout: config.genispace?.auth?.timeout
+          });
+          
+          // 检查缓存
+          let authResult = getCache(apiKey);
+          
+          if (!authResult) {
+            authResult = await validateApiKey(apiKey);
+            
+            if (authResult && authResult.success) {
+              setCache(apiKey, authResult);
+              logger.debug('API Key 验证成功', {
+                path: req.path,
+                userId: authResult.user?.id
+              });
+            } else {
+              logger.warn('API Key 验证失败', {
+                path: req.path,
+                apiKeyPrefix: apiKey.substring(0, 8) + '...',
+                error: authResult?.error || '未知错误',
+                baseUrl: config.genispace?.auth?.baseUrl
+              });
+            }
+          } else {
+            logger.debug('使用缓存的 API Key 验证结果', {
+              path: req.path,
+              userId: authResult.user?.id
+            });
+          }
+
+          if (authResult && authResult.success) {
+            req.genispace = {
+              user: authResult.user,
+              client: authResult.client,
+              apiKey: apiKey,
+              keyInfo: authResult.keyInfo
+            };
+            logger.debug('req.genispace 已设置', {
+              path: req.path,
+              hasClient: !!req.genispace.client,
+              userId: req.genispace.user?.id
+            });
+          } else {
+            logger.warn('req.genispace 未设置，验证失败', {
+              path: req.path,
+              hasAuthResult: !!authResult,
+              authSuccess: authResult?.success,
+              error: authResult?.error
+            });
+          }
+        } catch (error) {
+          // 记录验证错误，但继续执行，让算子自己判断
+          logger.error('API Key 验证异常', {
+            path: req.path,
+            error: error.message,
+            stack: error.stack,
+            baseUrl: config.genispace?.auth?.baseUrl
+          });
         }
-      }
-
-      if (!authResult || !authResult.success) {
-        return res.status(401).json({
-          success: false,
-          error: '认证失败'
+      } else {
+        logger.debug('请求中未找到 API Key', {
+          path: req.path,
+          headers: Object.keys(req.headers).filter(h => {
+            const lower = h.toLowerCase();
+            return lower.includes('genispace') || lower.includes('authorization');
+          })
         });
       }
-
-      // 添加到请求对象
-      req.genispace = {
-        user: authResult.user,
-        client: authResult.client,
-        apiKey: apiKey,
-        keyInfo: authResult.keyInfo // 包含平台API Key信息
-      };
-
-      logger.info('认证成功', {
-        userId: authResult.user.id,
-        endpoint: req.path
-      });
 
       next();
 

@@ -74,21 +74,16 @@ function setupMiddlewares(app, config) {
   // 5. 速率限制
   if (config.security.enableRateLimit) {
     const limiter = createRateLimiter(config.rateLimit);
-    app.use('/api/', limiter);
+    const apiPrefix = config.apiPrefix || '/api';
+    app.use(`${apiPrefix}/`, limiter);
   }
 
   // 6. 请求日志
   app.use(requestLogger);
 
-  // 7. GeniSpace API Key 认证中间件（排除文档路径）
-  if (config.genispace?.auth?.enabled) {
-    // 对所有 /api/* 路径启用认证，但在中间件内部排除公共路径
-    const { auth } = require('./auth');
-    app.use(auth());
-    logger.info('GeniSpace API Key 认证已启用');
-  } else {
-    logger.info('GeniSpace API Key 认证已禁用');
-  }
+  // 7. GeniSpace API Key 认证中间件
+  const { auth } = require('./auth');
+  app.use(auth());
 
   // 注意：错误处理中间件应该在所有路由注册后才设置
   // 这里不设置错误处理，会在主应用中设置

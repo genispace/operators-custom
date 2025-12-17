@@ -37,7 +37,7 @@ GeniSpace AI 平台的轻量级自定义算子组件库 API
 
 ### GeniSpace 平台认证
 
-当启用认证时（环境变量 \`GENISPACE_AUTH_ENABLED=true\`），需要提供有效的 GeniSpace API Key：
+需要认证的算子需要提供有效的 GeniSpace API Key：
 
 \`\`\`
 Authorization: GeniSpace <your-api-key>
@@ -46,12 +46,12 @@ Authorization: GeniSpace <your-api-key>
 ### 公共接口
 
 以下接口无需认证即可访问：
-- \`/\` - 首页
+- \`${config.apiPrefix}\` - 首页
 - \`/health\` - 健康检查
-- \`/api/docs\` - API 文档
-- \`/api/docs.json\` - API 文档 JSON
-- \`/api/operators\` - 算子列表
-- \`/api/operators/:category/:operator/definition\` - 算子定义文件
+- \`${config.apiPrefix}/docs\` - API 文档
+- \`${config.apiPrefix}/docs.json\` - API 文档 JSON
+- \`${config.apiPrefix}/operators\` - 算子列表
+- \`${config.apiPrefix}/operators/:category/:operator/definition\` - 算子定义文件
 
 ## 错误处理
 
@@ -263,7 +263,7 @@ Authorization: GeniSpace <your-api-key>
               type: 'array',
               items: { type: 'string' },
               description: 'API端点列表',
-              example: ['/api/text-processing/string-utils/format']
+              example: [`${config.apiPrefix}/text-processing/string-utils/format`]
             }
           }
         },
