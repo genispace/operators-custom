@@ -265,7 +265,7 @@ const uiSchema: UiSchema = {
   }
 };
 
-const GENISPACE_KEY_STORAGE = 'operators-internal-playground-genispace-key';
+const GENISPACE_KEY_STORAGE = 'operators-playground-genispace-key';
 
 export default function App() {
   const { t, i18n: i18nInstance } = useTranslation('playground');

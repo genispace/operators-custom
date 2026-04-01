@@ -1,26 +1,25 @@
 /**
- * 错误处理中间件
- * 
- * 统一处理应用程序错误
+ * Error handling middleware
+ *
+ * Centralized application error handling
  */
 
 const logger = require('../utils/logger');
 const { createErrorResponse, HttpStatus, ErrorCodes } = require('../utils/response');
 
 /**
- * 全局错误处理中间件
- * @param {Error} error - 错误对象
- * @param {object} req - 请求对象
- * @param {object} res - 响应对象
- * @param {function} next - Next函数
+ * Global error handler
+ * @param {Error} error
+ * @param {object} req
+ * @param {object} res
+ * @param {function} next
  */
 function errorHandler(error, req, res, next) {
-  // 如果响应已经发送，交给默认错误处理器
+  // Avoid double-send; delegate to Express default handler
   if (res.headersSent) {
     return next(error);
   }
 
-  // 记录错误日志
   logger.error('Application Error', {
     message: error.message,
     stack: error.stack,
@@ -30,37 +29,36 @@ function errorHandler(error, req, res, next) {
     userAgent: req.get('User-Agent')
   });
 
-  // 确定错误类型和状态码
   let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
   let errorCode = ErrorCodes.INTERNAL_ERROR;
-  let errorMessage = '服务器内部错误';
+  let errorMessage = 'Internal server error';
   let details = null;
 
-  // 处理不同类型的错误
+  // Classify by error shape (Joi, Mongoose-style, custom codes, body-parser, etc.)
   if (error.name === 'ValidationError') {
     statusCode = HttpStatus.BAD_REQUEST;
     errorCode = ErrorCodes.VALIDATION_ERROR;
-    errorMessage = '请求参数验证失败';
+    errorMessage = 'Request validation failed';
     details = error.details || error.message;
   } else if (error.name === 'CastError') {
     statusCode = HttpStatus.BAD_REQUEST;
     errorCode = ErrorCodes.INVALID_PARAMETER;
-    errorMessage = '参数格式错误';
+    errorMessage = 'Invalid parameter format';
   } else if (error.name === 'UnauthorizedError') {
     statusCode = HttpStatus.UNAUTHORIZED;
     errorCode = ErrorCodes.UNAUTHORIZED;
-    errorMessage = '未授权访问';
+    errorMessage = 'Unauthorized';
   } else if (error.code === 'OPERATOR_NOT_FOUND') {
     statusCode = HttpStatus.NOT_FOUND;
     errorCode = ErrorCodes.OPERATOR_NOT_FOUND;
-    errorMessage = error.message || '算子不存在';
+    errorMessage = error.message || 'Operator not found';
   } else if (error.code === 'OPERATOR_EXECUTION_ERROR') {
     statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     errorCode = ErrorCodes.OPERATOR_EXECUTION_ERROR;
-    errorMessage = error.message || '算子执行失败';
+    errorMessage = error.message || 'Operator execution failed';
     details = error.details;
   } else if (error.statusCode || error.status) {
-    // 自定义状态码错误
+    // AppError and similar attach statusCode / code
     statusCode = error.statusCode || error.status;
     errorMessage = error.message;
     errorCode = error.code || ErrorCodes.INTERNAL_ERROR;
@@ -68,14 +66,14 @@ function errorHandler(error, req, res, next) {
   } else if (error.type === 'entity.parse.failed') {
     statusCode = HttpStatus.BAD_REQUEST;
     errorCode = ErrorCodes.BAD_REQUEST;
-    errorMessage = 'JSON格式错误';
+    errorMessage = 'Invalid JSON body';
   } else if (error.type === 'entity.too.large') {
     statusCode = HttpStatus.BAD_REQUEST;
     errorCode = ErrorCodes.BAD_REQUEST;
-    errorMessage = '请求体过大';
+    errorMessage = 'Request body too large';
   }
 
-  // 开发环境下包含堆栈信息
+  // Surface stack trace when nothing else was attached (local debugging only)
   if (process.env.NODE_ENV === 'development') {
     details = details || {
       stack: error.stack,
@@ -83,15 +81,11 @@ function errorHandler(error, req, res, next) {
     };
   }
 
-  // 发送错误响应
   res.status(statusCode).json(createErrorResponse(errorMessage, errorCode, details));
 }
 
 /**
- * 404错误处理中间件
- * @param {object} req - 请求对象
- * @param {object} res - 响应对象
- * @param {function} next - Next函数
+ * 404 handler
  */
 function notFoundHandler(req, res, next) {
   logger.warn('404 Not Found', {
@@ -102,7 +96,7 @@ function notFoundHandler(req, res, next) {
   });
 
   res.status(HttpStatus.NOT_FOUND).json(createErrorResponse(
-    '请求的资源不存在',
+    'Resource not found',
     ErrorCodes.NOT_FOUND,
     {
       path: req.originalUrl,
@@ -111,9 +105,6 @@ function notFoundHandler(req, res, next) {
   ));
 }
 
-/**
- * 创建自定义错误类
- */
 class AppError extends Error {
   constructor(message, statusCode = HttpStatus.INTERNAL_SERVER_ERROR, code = ErrorCodes.INTERNAL_ERROR, details = null) {
     super(message);
@@ -127,9 +118,6 @@ class AppError extends Error {
   }
 }
 
-/**
- * 创建验证错误类
- */
 class ValidationError extends Error {
   constructor(message, errors = []) {
     super(message);
@@ -143,9 +131,6 @@ class ValidationError extends Error {
   }
 }
 
-/**
- * 创建操作符错误类
- */
 class OperatorError extends Error {
   constructor(message, operatorName, details = null) {
     super(message);
@@ -160,9 +145,6 @@ class OperatorError extends Error {
   }
 }
 
-/**
- * 创建未找到错误类
- */
 class NotFoundError extends Error {
   constructor(message, resource = null) {
     super(message);
@@ -176,27 +158,17 @@ class NotFoundError extends Error {
   }
 }
 
-/**
- * 异步错误捕获装饰器
- * @param {function} fn - 异步函数
- * @returns {function} 包装后的函数
- */
 function catchAsync(fn) {
   return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
 
-/**
- * 创建操作符级错误处理器
- * @param {string} operatorName - 算子名称
- * @returns {function} 错误处理函数
- */
 function createOperatorErrorHandler(operatorName) {
   return (error, req, res, next) => {
-    // 包装为操作符错误
+    // Re-throw through global errorHandler with operator context
     const operatorError = new OperatorError(
-      `算子 "${operatorName}" 执行失败: ${error.message}`,
+      `Operator "${operatorName}" failed: ${error.message}`,
       operatorName,
       {
         originalError: error.message,
@@ -213,8 +185,7 @@ module.exports = {
   notFoundHandler,
   catchAsync,
   createOperatorErrorHandler,
-  
-  // 错误类
+
   AppError,
   ValidationError,
   OperatorError,

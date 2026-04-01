@@ -50,7 +50,7 @@ export function TopNav({
               <div className="font-display text-base font-semibold tracking-tight text-g-text">
                 {t('nav.brand', 'GeniSpace')}
               </div>
-              <div className="truncate text-xs text-g-muted">{t('nav.subtitle', 'operators-internal dev playground')}</div>
+              <div className="truncate text-xs text-g-muted">{t('nav.subtitle', 'operators dev playground')}</div>
             </div>
           </div>
           <div className="shrink-0 lg:hidden">

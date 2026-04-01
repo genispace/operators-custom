@@ -5,14 +5,14 @@ import HttpBackend from 'i18next-http-backend';
 const STORAGE_KEY = 'language';
 
 function initialLanguage(): string {
-  if (typeof window === 'undefined') return 'zh-CN';
+  if (typeof window === 'undefined') return 'en-US';
   try {
     const s = localStorage.getItem(STORAGE_KEY);
     if (s === 'en-US' || s === 'zh-CN') return s;
   } catch {
     /* ignore */
   }
-  return 'zh-CN';
+  return 'en-US';
 }
 
 void i18n
@@ -20,7 +20,7 @@ void i18n
   .use(initReactI18next)
   .init({
     lng: initialLanguage(),
-    fallbackLng: 'zh-CN',
+    fallbackLng: 'en-US',
     supportedLngs: ['zh-CN', 'en-US'],
     ns: ['playground'],
     defaultNS: 'playground',

@@ -1,14 +1,11 @@
 /**
- * 统一响应格式工具
- * 
- * 提供标准化的API响应格式
+ * Shared JSON response shape helpers (`success`, `timestamp`, optional `code` / `details`).
  */
 
 /**
- * 创建成功响应
- * @param {any} data - 响应数据
- * @param {string} message - 成功消息
- * @returns {object} 成功响应对象
+ * @param {unknown} data
+ * @param {string|null} [message]
+ * @returns {{ success: true, data: unknown, timestamp: string, message?: string }}
  */
 function createSuccessResponse(data, message = null) {
   const response = {
@@ -16,20 +13,18 @@ function createSuccessResponse(data, message = null) {
     data,
     timestamp: new Date().toISOString()
   };
-  
+
   if (message) {
     response.message = message;
   }
-  
+
   return response;
 }
 
 /**
- * 创建错误响应
- * @param {string} error - 错误信息
- * @param {string} code - 错误代码
- * @param {any} details - 错误详情
- * @returns {object} 错误响应对象
+ * @param {string} error Human-readable message
+ * @param {string|null} [code]
+ * @param {unknown} [details]
  */
 function createErrorResponse(error, code = null, details = null) {
   const response = {
@@ -37,29 +32,27 @@ function createErrorResponse(error, code = null, details = null) {
     error,
     timestamp: new Date().toISOString()
   };
-  
+
   if (code) {
     response.code = code;
   }
-  
+
   if (details) {
     response.details = details;
   }
-  
+
   return response;
 }
 
 /**
- * 创建分页响应
- * @param {Array} items - 数据项目
- * @param {number} page - 当前页码
- * @param {number} limit - 每页限制
- * @param {number} total - 总数量
- * @returns {object} 分页响应对象
+ * @param {unknown[]} items
+ * @param {number} page
+ * @param {number} limit
+ * @param {number} total
  */
 function createPaginatedResponse(items, page, limit, total) {
   const totalPages = Math.ceil(total / limit);
-  
+
   return createSuccessResponse({
     items,
     pagination: {
@@ -73,90 +66,50 @@ function createPaginatedResponse(items, page, limit, total) {
   });
 }
 
-/**
- * 创建验证错误响应
- * @param {Array} errors - 验证错误列表
- * @returns {object} 验证错误响应对象
- */
+/** @param {unknown[]} errors Joi-style or custom field errors */
 function createValidationErrorResponse(errors) {
   return createErrorResponse(
-    '请求参数验证失败',
+    'Request validation failed',
     'VALIDATION_ERROR',
     { errors }
   );
 }
 
-/**
- * 发送成功响应
- * @param {object} res - Express响应对象
- * @param {any} data - 响应数据
- * @param {string} message - 成功消息
- * @param {number} statusCode - HTTP状态码
- */
+/** @param {import('express').Response} res */
 function sendSuccessResponse(res, data, message = null, statusCode = 200) {
   res.status(statusCode).json(createSuccessResponse(data, message));
 }
 
-/**
- * 发送错误响应
- * @param {object} res - Express响应对象
- * @param {string} error - 错误信息
- * @param {string} code - 错误代码
- * @param {any} details - 错误详情
- * @param {number} statusCode - HTTP状态码
- */
+/** @param {import('express').Response} res */
 function sendErrorResponse(res, error, code = null, details = null, statusCode = 400) {
   res.status(statusCode).json(createErrorResponse(error, code, details));
 }
 
-/**
- * 发送分页响应
- * @param {object} res - Express响应对象
- * @param {Array} items - 数据项目
- * @param {number} page - 当前页码
- * @param {number} limit - 每页限制
- * @param {number} total - 总数量
- * @param {number} statusCode - HTTP状态码
- */
+/** @param {import('express').Response} res */
 function sendPaginatedResponse(res, items, page, limit, total, statusCode = 200) {
   res.status(statusCode).json(createPaginatedResponse(items, page, limit, total));
 }
 
-/**
- * 发送验证错误响应
- * @param {object} res - Express响应对象
- * @param {Array} errors - 验证错误列表
- * @param {number} statusCode - HTTP状态码
- */
+/** @param {import('express').Response} res */
 function sendValidationErrorResponse(res, errors, statusCode = 400) {
   res.status(statusCode).json(createValidationErrorResponse(errors));
 }
 
-/**
- * 处理异步路由错误
- * @param {function} fn - 异步路由处理函数
- * @returns {function} 包装后的处理函数
- */
+/** Express route wrapper: forwards rejected promises to `next(err)`. */
 function asyncHandler(fn) {
   return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
 
-/**
- * 处理异步中间件错误
- * @param {function} middleware - 异步中间件函数
- * @returns {function} 包装后的中间件函数
- */
+/** Same as {@link asyncHandler} for middleware functions. */
 function asyncMiddleware(middleware) {
   return (req, res, next) => {
     Promise.resolve(middleware(req, res, next)).catch(next);
   };
 }
 
-/**
- * 标准HTTP状态码
- */
+/** Common HTTP status codes for handlers */
 const HttpStatus = {
   OK: 200,
   CREATED: 201,
@@ -177,9 +130,7 @@ const HttpStatus = {
   GATEWAY_TIMEOUT: 504
 };
 
-/**
- * 标准错误代码
- */
+/** Stable machine-readable `code` values for clients */
 const ErrorCodes = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   NOT_FOUND: 'NOT_FOUND',
@@ -195,23 +146,21 @@ const ErrorCodes = {
 };
 
 module.exports = {
-  // 响应创建函数
+  // Build plain objects (for tests or manual res.json)
   createSuccessResponse,
   createErrorResponse,
   createPaginatedResponse,
   createValidationErrorResponse,
-  
-  // 响应发送函数
+
+  // Set status + json in one call
   sendSuccessResponse,
   sendErrorResponse,
   sendPaginatedResponse,
   sendValidationErrorResponse,
-  
-  // 异步处理函数
+
   asyncHandler,
   asyncMiddleware,
-  
-  // 常量
+
   HttpStatus,
   ErrorCodes
 };

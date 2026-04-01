@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 算子 module.exports 字段访问：优先根级（推荐），兼容历史 `genispace` 包裹。
+ * Operator module.exports helpers: prefer root fields, fall back to legacy `genispace` wrapper.
  */
 
 function operatorMethods(config) {

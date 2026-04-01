@@ -1,7 +1,7 @@
 {
   "nav": {
     "brand": "GeniSpace",
-    "subtitle": "operators-internal dev playground",
+    "subtitle": "operators dev playground",
     "selectOperator": "Select Operator ...",
     "selectMethod": "Select Method ..."
   },

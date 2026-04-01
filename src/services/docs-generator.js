@@ -1,8 +1,5 @@
 /**
- * 文档生成器
- * 
- * 基于算子配置生成 Swagger/OpenAPI 文档
- * 支持新的分离式架构
+ * OpenAPI document generator from operator registry.
  */
 
 const logger = require('../utils/logger');
@@ -16,7 +13,7 @@ class DocumentGenerator {
       info: {
         title: 'GeniSpace Custom Operators API',
         version: '1.0.0',
-        description: 'GeniSpace AI 平台自定义算子集合',
+        description: 'GeniSpace custom operators collection',
         contact: {
           name: 'genispace.com Dev Team',
           url: 'https://genispace.com',
@@ -32,11 +29,9 @@ class DocumentGenerator {
   }
 
   /**
-   * Swagger「Servers」与 try-it-out 基准地址；优先 PUBLIC_BASE_URL（与 K8s ConfigMap 一致）
-   */
-  /**
-   * 若对外 URL 带 path（如 .../operators/internal），OpenAPI server 只用 origin，
-   * paths 仍含完整前缀，避免 Swagger 拼成 .../operators/internal/operators/internal/...
+   * OpenAPI servers / try-it-out base: prefer PUBLIC_BASE_URL (e.g. K8s ConfigMap).
+   * If public URL has a path prefix, server URL uses origin only; paths keep full prefix
+   * so Swagger does not double the prefix.
    */
   static _openApiServerUrlFromPublicBase(url) {
     const s = url && String(url).trim();
@@ -66,7 +61,7 @@ class DocumentGenerator {
       return [
         {
           url: DocumentGenerator._openApiServerUrlFromPublicBase(explicit),
-          description: '对外服务'
+          description: 'Public service'
         }
       ];
     }
@@ -76,7 +71,7 @@ class DocumentGenerator {
       return [
         {
           url: DocumentGenerator._openApiServerUrlFromPublicBase(operatorsBase),
-          description: '对外服务'
+          description: 'Public service'
         }
       ];
     }
@@ -98,14 +93,12 @@ class DocumentGenerator {
     }
 
     const description = /localhost|127\.0\.0\.1/.test(url)
-      ? '开发服务器'
-      : '服务地址';
+      ? 'Development server'
+      : 'Service URL';
     return [{ url, description }];
   }
 
-  /**
-   * 生成完整的 OpenAPI 文档
-   */
+  /** @returns {object} full OpenAPI spec */
   generate(registry) {
     try {
       const doc = {
@@ -115,28 +108,29 @@ class DocumentGenerator {
         tags: this._generateTags(registry)
       };
       
-      logger.debug('OpenAPI 文档生成成功', {
+      logger.debug('OpenAPI spec generated', {
         operatorsCount: registry.getStats().totalOperators,
         pathsCount: Object.keys(doc.paths).length
       });
       
       return doc;
     } catch (error) {
-      logger.error('OpenAPI 文档生成失败', { error: error.message });
+      logger.error('OpenAPI spec generation failed', { error: error.message });
       throw error;
     }
   }
 
   /**
-   * 无 tags 时的回退标签
+   * Fallback OpenAPI tag name when a path spec omits `tags`.
    * @private
+   * @param {string} [category]
    */
   _getTagName(category) {
     return category || 'default';
   }
 
   /**
-   * 生成路径文档
+   * Merge per-operator `config.openapi.paths` into the global `paths` map.
    * @private
    */
   _generatePaths(registry) {
@@ -148,8 +142,8 @@ class DocumentGenerator {
       if (!config.openapi?.paths) {
         return;
       }
-      
-      // 处理OpenAPI格式的路径定义
+
+      // Each operator may declare OpenAPI path fragments; prefix with /api/{category}/{name}
       Object.entries(config.openapi.paths).forEach(([path, methods]) => {
         const basePath = `${this.apiPrefix}/${config.info.category}/${config.info.name}`;
         const fullPath = basePath + path;
@@ -172,7 +166,7 @@ class DocumentGenerator {
   }
 
   /**
-   * 生成组件定义
+   * Base `components` object plus shallow merge of operator-provided schemas/responses.
    * @private
    */
   _generateComponents(registry) {
@@ -182,11 +176,11 @@ class DocumentGenerator {
           type: 'apiKey',
           in: 'header',
           name: 'Authorization',
-          description: 'GeniSpace API Key 认证，格式：GeniSpace <your-api-key>'
+          description: 'GeniSpace API key. Format: GeniSpace <your-api-key>'
         }
       },
       schemas: {
-        // 标准响应格式
+        // Minimal shared envelopes; operators may add more under openapi.components
         SuccessResponse: {
           type: 'object',
           properties: {
@@ -206,7 +200,7 @@ class DocumentGenerator {
       },
       responses: {
         BadRequest: {
-          description: '请求参数错误',
+          description: 'Bad request',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -214,7 +208,7 @@ class DocumentGenerator {
           }
         },
         InternalServerError: {
-          description: '内部服务器错误',
+          description: 'Internal server error',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' }
@@ -222,15 +216,15 @@ class DocumentGenerator {
           }
         },
         Unauthorized: {
-          description: 'GeniSpace API Key 认证失败',
+          description: 'GeniSpace API key authentication failed',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' },
               example: {
                 success: false,
-                error: '缺少 GeniSpace API Key',
+                error: 'Missing GeniSpace API key',
                 code: 'MISSING_GENISPACE_API_KEY',
-                message: '请在 Authorization 头中提供 GeniSpace API Key，格式：Authorization: GeniSpace <your-api-key>',
+                message: 'Provide a GeniSpace API key in the Authorization header: Authorization: GeniSpace <your-api-key>',
                 timestamp: '2025-01-01T12:00:00.000Z'
               }
             }
@@ -239,16 +233,14 @@ class DocumentGenerator {
       }
     };
 
-    // 合并算子定义的组件
+    // Layer operator-specific schemas/responses on top of the defaults above
     const operators = registry.getAll();
     operators.forEach(operatorData => {
       const { config } = operatorData;
       if (config.openapi?.components) {
-        // 合并 schemas
         if (config.openapi.components.schemas) {
           Object.assign(components.schemas, config.openapi.components.schemas);
         }
-        // 合并 responses
         if (config.openapi.components.responses) {
           Object.assign(components.responses, config.openapi.components.responses);
         }
@@ -259,20 +251,19 @@ class DocumentGenerator {
   }
 
   /**
-   * 生成标签定义 - 按算子分组
+   * Build Swagger `tags` from operator titles/descriptions (one entry per loaded operator).
    * @private
    */
   _generateTags(registry) {
     const operators = registry.getAll();
     
-    // 每个算子生成一个标签
     return operators.map(operatorData => {
       const { config } = operatorData;
       const info = config.info;
       
       return {
         name: info.title || info.name,
-        description: info.description || `${info.title || info.name}算子`
+        description: info.description || `${info.title || info.name} operator`
       };
     });
   }

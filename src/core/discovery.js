@@ -1,7 +1,7 @@
 /**
- * 算子发现服务
- * 
- * 负责扫描文件系统并发现算子模块
+ * Operator discovery
+ *
+ * Scans the filesystem and loads operator modules.
  */
 
 const fs = require('fs').promises;
@@ -13,7 +13,6 @@ const { operatorMethods } = require('../utils/operator-definition');
 class OperatorDiscovery {
   constructor(options = {}) {
     this.options = {
-      // 只扫描算子注册文件
       operatorPattern: '*.operator.js',
       excludePatterns: ['node_modules', '.git', 'test', '__test__'],
       ...options
@@ -22,88 +21,83 @@ class OperatorDiscovery {
   }
 
   /**
-   * 扫描目录发现算子
-   * @param {string} directory - 扫描目录
-   * @returns {Array} 发现的算子列表
+   * @param {string} directory
+   * @returns {Array}
    */
   async scan(directory) {
     try {
-      // 确保目录路径是绝对路径
+      // Resolve to an absolute path before walking the tree
       const absoluteDir = path.isAbsolute(directory) ? directory : path.resolve(process.cwd(), directory);
-      logger.info(`开始扫描算子目录: ${absoluteDir}`);
-      
+      logger.info(`Scanning operators directory: ${absoluteDir}`);
+
       await this._checkDirectory(absoluteDir);
-      
+
       const operators = [];
       await this._scanRecursive(absoluteDir, operators);
-      
-      logger.info(`算子发现完成，共发现 ${operators.length} 个算子`);
+
+      logger.info(`Discovery complete: ${operators.length} operator(s)`);
       return operators;
-      
     } catch (error) {
-      logger.error(`算子发现失败: ${directory}`, { error: error.message });
+      logger.error(`Operator discovery failed: ${directory}`, { error: error.message });
       throw error;
     }
   }
 
   /**
-   * 加载单个算子注册文件
-   * @param {string} filePath - 文件路径
-   * @returns {object|null} 算子配置
+   * @param {string} filePath
+   * @returns {object|null}
    */
   async loadOperator(filePath) {
     try {
       if (this.discovered.has(filePath)) {
-        logger.debug(`跳过已加载的算子: ${filePath}`);
+        logger.debug(`Skipping already loaded operator: ${filePath}`);
         return null;
       }
 
-      // 清除缓存支持热重载
-      // 如果 filePath 是绝对路径，直接使用；否则使用 require.resolve
       const resolvedPath = path.isAbsolute(filePath) ? filePath : require.resolve(filePath);
+      // Clear module cache so file changes are picked up on reload
       if (require.cache[resolvedPath]) {
         delete require.cache[resolvedPath];
       }
-      
+
       const operatorConfig = require(filePath);
       const category = this._extractCategory(filePath);
-      
-      // 验证算子配置结构（唯一真相：根级 methods，或兼容 genispace.methods）
+
+      // Require info, routes, and a non-empty methods list (see operator-definition)
       if (!this._validateOperatorConfig(operatorConfig)) {
-        logger.error(`算子配置格式错误: ${filePath}`);
+        logger.error(`Invalid operator config: ${filePath}`);
         return null;
       }
 
       try {
         operatorConfig.openapi = deriveOpenApiFromConfig(operatorConfig);
       } catch (err) {
-        logger.error(`派生 OpenAPI 失败: ${filePath}`, { error: err.message });
+        logger.error(`OpenAPI derivation failed: ${filePath}`, { error: err.message });
         return null;
       }
-      
-      // 设置默认分类
+
+      // Default category from operators/{category}/... layout when omitted
       if (!operatorConfig.info?.category && category) {
         operatorConfig.info = { ...operatorConfig.info, category };
       }
 
-      // 加载路由文件
+      // routes field is a path relative to the operator module directory
       const routesPath = path.resolve(path.dirname(filePath), operatorConfig.routes);
       let routes = null;
-      
+
       try {
-        // 清除路由文件缓存
         if (require.cache[routesPath]) {
           delete require.cache[routesPath];
         }
         routes = require(routesPath);
       } catch (error) {
-        logger.error(`路由文件加载失败: ${routesPath}`, { error: error.message });
+        logger.error(`Failed to load routes file: ${routesPath}`, { error: error.message });
         return null;
       }
 
       this.discovered.add(filePath);
-      
-      logger.debug(`算子加载成功: ${operatorConfig.info?.name}`, {
+
+      logger.debug(`Operator loaded: ${operatorConfig.info?.name}`, {
         file: path.basename(filePath),
         routes: operatorConfig.routes,
         category
@@ -119,36 +113,25 @@ class OperatorDiscovery {
           fileName: path.basename(filePath)
         }
       };
-
     } catch (error) {
-      logger.error(`算子加载失败: ${filePath}`, { error: error.message });
+      logger.error(`Operator load failed: ${filePath}`, { error: error.message });
       return null;
     }
   }
 
-  /**
-   * 重置发现状态
-   */
   reset() {
     this.discovered.clear();
   }
 
-  /**
-   * 检查目录是否存在
-   * @private
-   */
   async _checkDirectory(directory) {
     try {
       await fs.access(directory);
     } catch {
-      throw new Error(`算子目录不存在: ${directory}`);
+      throw new Error(`Operators directory does not exist: ${directory}`);
     }
   }
 
-  /**
-   * 递归扫描目录
-   * @private
-   */
+  /** Depth-first walk; only files matching *.operator.js are loaded. */
   async _scanRecursive(directory, operators, category = '') {
     const entries = await fs.readdir(directory, { withFileTypes: true });
 
@@ -157,8 +140,7 @@ class OperatorDiscovery {
         continue;
       }
 
-      // 确保路径是绝对路径
-      const fullPath = path.isAbsolute(directory) 
+      const fullPath = path.isAbsolute(directory)
         ? path.join(directory, entry.name)
         : path.resolve(directory, entry.name);
 
@@ -174,54 +156,37 @@ class OperatorDiscovery {
     }
   }
 
-  /**
-   * 判断是否应该排除
-   * @private
-   */
   _shouldExclude(name) {
-    return this.options.excludePatterns.some(pattern => 
+    return this.options.excludePatterns.some(pattern =>
       name.includes(pattern) || name.startsWith('.')
     );
   }
 
-  /**
-   * 判断是否为算子注册文件
-   * @private
-   */
   _isOperatorFile(fileName) {
     return fileName.endsWith('.operator.js');
   }
 
-  /**
-   * 从文件路径提取分类
-   * @private
-   */
+  /** Derive category from operators/<category>/.../name.operator.js when possible. */
   _extractCategory(filePath) {
     const relativePath = path.relative(process.cwd(), filePath);
     const segments = relativePath.split(path.sep);
-    
-    // 假设结构: operators/category/operator.js
+
     if (segments.length >= 3 && segments[0] === 'operators') {
       return segments[1];
     }
-    
+
     return '';
   }
-  
-  /**
-   * 验证算子配置格式
-   * @private
-   */
+
   _validateOperatorConfig(config) {
     if (!config || typeof config !== 'object') {
       return false;
     }
-    
-    // 必需字段验证
+
     if (!config.info || !config.info.name) {
       return false;
     }
-    
+
     if (!config.routes || typeof config.routes !== 'string') {
       return false;
     }
@@ -245,7 +210,7 @@ class OperatorDiscovery {
         return false;
       }
     }
-    
+
     return true;
   }
 }

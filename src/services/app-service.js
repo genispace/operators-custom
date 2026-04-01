@@ -1,10 +1,10 @@
 /**
- * 应用服务编排
- * 
- * 协调各个核心组件，实现算子平台的核心功能
+ * Application service orchestration
+ *
+ * Coordinates core components for the operator platform.
  */
 
-// const swaggerJsDoc = require('swagger-jsdoc'); // 不再需要，直接使用自定义文档生成器
+// const swaggerJsDoc = require('swagger-jsdoc'); // unused; custom docs generator instead
 const OperatorRegistry = require('../core/registry');
 const OperatorDiscovery = require('../core/discovery');
 const RouterBuilder = require('../core/router');
@@ -24,53 +24,50 @@ class ApplicationService {
   }
 
   /**
-   * 初始化应用服务
-   * @param {string} operatorsDir - 算子目录
+   * Initialize application service
+   * @param {string} operatorsDir
    */
   async initialize(operatorsDir) {
     try {
-      logger.info('开始初始化应用服务...');
-      
-      // 1. 发现和加载算子
+      logger.info('Initializing application service...');
+
       await this._loadOperators(operatorsDir);
-      
-      // 2. 生成API文档
+
+      // Merge registry into one OpenAPI document for /docs and /docs.json
       this._generateDocs();
-      
+
       this.initialized = true;
-      logger.info('应用服务初始化完成');
-      
+      logger.info('Application service initialized');
+
     } catch (error) {
-      logger.error('应用服务初始化失败', { error: error.message });
+      logger.error('Application service initialization failed', { error: error.message });
       throw error;
     }
   }
 
   /**
-   * 应用到Express应用
-   * @param {object} app - Express应用实例
+   * Mount on Express app
+   * @param {object} app
    */
   applyTo(app) {
     if (!this.initialized) {
-      throw new Error('应用服务未初始化，请先调用 initialize()');
+      throw new Error('Application service not initialized; call initialize() first');
     }
 
-    // 构建路由
+    // Each operator Express router under /api/{category}/{operatorName}
     this.router.applyRoutes(app, this.registry);
     return this;
   }
 
   /**
-   * 获取Swagger文档
-   * @returns {object} Swagger规范
+   * @returns {object} OpenAPI / Swagger spec
    */
   getSwaggerSpec() {
     return this.swaggerSpec;
   }
 
   /**
-   * 获取统计信息
-   * @returns {object} 统计数据
+   * @returns {object} stats
    */
   getStats() {
     const registryStats = this.registry.getStats();
@@ -84,8 +81,7 @@ class ApplicationService {
   }
 
   /**
-   * 获取算子列表
-   * @returns {Array} 算子列表
+   * @returns {Array} operators
    */
   getOperators() {
     return this.registry.getAll().map(operatorData => {
@@ -112,19 +108,17 @@ class ApplicationService {
   }
 
   /**
-   * 按分类获取算子
-   * @param {string} category - 分类名称
-   * @returns {Array} 算子列表
+   * @param {string} category
+   * @returns {Array}
    */
   getOperatorsByCategory(category) {
     return this.getOperators().filter(op => op.category === category);
   }
 
   /**
-   * 获取单个算子的完整定义
-   * @param {string} operatorId - 算子ID
-   * @param {object} req - 请求对象（用于构建完整URL）
-   * @returns {object|null} 算子定义
+   * @param {string} operatorId
+   * @param {object|null} req for base URL
+   * @returns {object|null}
    */
   getOperatorDefinition(operatorId, req = null) {
     const operatorData = this.registry.get(operatorId);
@@ -136,7 +130,7 @@ class ApplicationService {
     const fileMetadata =
       config.metadata && typeof config.metadata === 'object' ? { ...config.metadata } : {};
 
-    // 构建基础URL（如果提供了请求对象）；网关后常见未带 X-Forwarded-Proto，req.secure 为 false 会误判为 http
+    // Base URL from request; behind gateway without X-Forwarded-Proto, req.secure may be wrong
     let baseUrl = '';
     if (req) {
       const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
@@ -155,16 +149,16 @@ class ApplicationService {
         properties: {
           serverUrl: {
             type: 'string',
-            title: '服务器地址',
+            title: 'Server URL',
             required: true,
-            description: 'API 服务器的基础地址',
+            description: 'Base URL of the API server',
             default: serverUrlDefault
           },
           timeout: {
             type: 'number',
-            title: '全局超时时间',
+            title: 'Global timeout',
             default: 30000,
-            description: '请求超时时间（毫秒）'
+            description: 'Request timeout in milliseconds'
           },
           headers: {
             type: 'array',
@@ -175,21 +169,21 @@ class ApplicationService {
                 value: { type: 'string' }
               }
             },
-            title: '全局请求头',
-            description: '应用于所有请求的全局请求头'
+            title: 'Global headers',
+            description: 'HTTP headers applied to every request'
           },
           retryPolicy: {
             type: 'object',
-            title: '全局重试策略',
+            title: 'Global retry policy',
             properties: {
               intervalMs: {
                 type: 'number',
-                title: '重试间隔',
+                title: 'Retry interval (ms)',
                 default: 1000
               },
               maxAttempts: {
                 type: 'number',
-                title: '最大重试次数',
+                title: 'Max retry attempts',
                 default: 3
               }
             }
@@ -202,7 +196,7 @@ class ApplicationService {
         ? config.configuration
         : { schema: { type: 'object', properties: {} }, values: {} };
 
-    // 构建GeniSpace算子定义格式
+    // GeniSpace operator definition shape
     return {
       type: 'genispace-operator',
       version: '1.0.0',
@@ -215,22 +209,22 @@ class ApplicationService {
         tags: config.info.tags || [],
         author: config.info.author || 'genispace.com Dev Team',
         
-        // 用户级配置（由算子定义文件根级 configuration 提供）
+        // User-level config from operator file root `configuration`
         configuration: {
           schema: customUserConfiguration.schema || { type: 'object', properties: {} },
           values: customUserConfiguration.values || {}
         },
-        // 系统级 API 运行配置（用于服务地址、全局头、超时等）
+        // System-level API runtime config (base URL, headers, timeout)
         systemConfiguration: defaultSystemConfiguration,
 
-        // 方法定义（根级 methods；合并 chatPluginByMethod → chatPluginConfig）
+        // Methods from root `methods`; merge chatPluginByMethod → chatPluginConfig
         methods: this._mergeChatPluginConfigs(
           this._buildMethodsFromDefinition(config),
           config,
           this._resolvePublicBaseUrl(baseUrl)
         ),
         
-        // 元数据：先写导出审计字段，再合并算子文件中的 metadata（如 locales.zh）
+        // Metadata: export audit fields first, then merge file metadata (e.g. locales.zh)
         metadata: {
           source: 'genispace-internal-operators',
           exportedAt: new Date().toISOString(),
@@ -244,13 +238,13 @@ class ApplicationService {
   }
 
   /**
-   * 调试台：返回已注册算子及方法的 inputSchema、endpoint、chatPluginConfig
-   * @param {object} req - 可选，用于解析对外 Host
+   * Playground: registered operators with inputSchema, endpoint, chatPluginConfig
+   * @param {object|null} req for public host
    * @returns {Array<object>}
    */
   getPlaygroundRegistry(req = null) {
     if (!this.initialized) {
-      throw new Error('应用服务未初始化，请先调用 initialize()');
+      throw new Error('Application service not initialized; call initialize() first');
     }
 
     return this.registry.getAll()
@@ -285,8 +279,8 @@ class ApplicationService {
   }
 
   /**
-   * 解析用于拼接 pluginUrl 的对外 Origin（不含尾斜杠）
-   * @param {string} reqBaseUrl - 来自请求的动态 baseUrl
+   * Public origin for pluginUrl (no trailing slash)
+   * @param {string} reqBaseUrl
    * @returns {string}
    */
   _resolvePublicBaseUrl(reqBaseUrl) {
@@ -298,8 +292,8 @@ class ApplicationService {
   }
 
   /**
-   * 由算子 methods[]（根级或兼容 genispace.methods）构建平台 methods（含 configuration）
-   * @param {object} config - 算子配置
+   * Build platform methods from operator methods[] (root or legacy genispace.methods)
+   * @param {object} config
    * @returns {Array<object>}
    */
   _buildMethodsFromDefinition(config) {
@@ -346,7 +340,7 @@ class ApplicationService {
                     value: { type: 'string' }
                   }
                 },
-                title: '请求头',
+                title: 'Headers',
                 default: []
               },
               caching: {
@@ -376,10 +370,10 @@ class ApplicationService {
   }
 
   /**
-   * 将 chatPluginByMethod（根级或 genispace）合并到导出方法的 chatPluginConfig
-   * @param {Array} methods - _buildMethodsFromDefinition 结果
-   * @param {object} operatorConfig - 算子 module.exports
-   * @param {string} publicBase - 对外服务根 URL
+   * Merge chatPluginByMethod into exported method chatPluginConfig
+   * @param {Array} methods from _buildMethodsFromDefinition
+   * @param {object} operatorConfig module.exports
+   * @param {string} publicBase public service root URL
    * @returns {Array}
    */
   _mergeChatPluginConfigs(methods, operatorConfig, publicBase) {
@@ -416,24 +410,20 @@ class ApplicationService {
   }
 
   /**
-   * 重新加载算子
-   * @param {string} operatorsDir - 算子目录
+   * @param {string} operatorsDir
    */
   async reload(operatorsDir) {
-    logger.info('开始重新加载算子...');
-    
-    // 清空状态
+    logger.info('Reloading operators...');
+
     this.registry.clear();
     this.discovery.reset();
     
-    // 重新初始化
     await this.initialize(operatorsDir);
-    
-    logger.info('算子重新加载完成');
+
+    logger.info('Operators reloaded');
   }
 
   /**
-   * 加载算子
    * @private
    */
   async _loadOperators(operatorsDir) {
@@ -452,28 +442,26 @@ class ApplicationService {
         }
       } catch (error) {
         errorCount++;
-        logger.error(`算子注册失败: ${operatorData?.config?.info?.name || 'unknown'}`, { 
-          error: error.message 
+        logger.error(`Operator registration failed: ${operatorData?.config?.info?.name || 'unknown'}`, {
+          error: error.message
         });
       }
     }
     
-    logger.info(`算子加载完成: 成功 ${successCount} 个，失败 ${errorCount} 个`);
-    
+    logger.info(`Operators loaded: ${successCount} succeeded, ${errorCount} failed`);
+
     if (successCount === 0) {
-      logger.warn('没有成功加载任何算子');
+      logger.warn('No operators loaded successfully');
     }
   }
 
   /**
-   * 生成API文档
    * @private
    */
   _generateDocs() {
-    // 直接使用文档生成器生成完整的OpenAPI文档
     this.swaggerSpec = this.docsGenerator.generate(this.registry);
-    
-    logger.debug('API文档生成完成');
+
+    logger.debug('OpenAPI spec generated');
   }
 }
 

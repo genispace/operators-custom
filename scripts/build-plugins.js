@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * 将各算子目录下 plugins/<slot>/ 中的 manifest.json、入口脚本（main）、
- * manifest.widget 指向的脚本及 locales 复制到 public/plugins/<category>/<operator>/plugins/<slot>/
- * <slot> 通常为 methods[].identifier，多方法共用资源时用 shared。
+ * Copy each operator's plugins/<slot>/ (manifest.json, main entry, manifest.widget scripts, locales)
+ * to public/plugins/<category>/<operator>/plugins/<slot>/.
+ * <slot> is usually methods[].identifier; use shared when multiple methods share assets.
  */
 
 const fs = require('fs');

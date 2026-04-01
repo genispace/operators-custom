@@ -1,7 +1,7 @@
 {
   "nav": {
     "brand": "GeniSpace",
-    "subtitle": "operators-internal 调试台",
+    "subtitle": "算子调试台",
     "selectOperator": "请选择算子…",
     "selectMethod": "请选择方法…"
   },

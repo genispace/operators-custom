@@ -1,7 +1,4 @@
-/**
- * 简单请求日志中间件
- * 直接输出到控制台
- */
+/** Minimal request logging to stdout */
 
 function generateRequestId() {
   return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -13,7 +10,6 @@ function requestLogger(req, res, next) {
   
   req.requestId = requestId;
   
-  // 请求开始日志
   console.log(`${new Date().toISOString()} [INFO] Request started`, JSON.stringify({
     requestId,
     method: req.method,
@@ -24,9 +20,8 @@ function requestLogger(req, res, next) {
     contentLength: req.get('Content-Length') || 0
   }));
 
-  // 请求结束时记录
   res.on('finish', () => {
-    const duration = Number(process.hrtime.bigint() - startTime) / 1000000;
+    const duration = Number(process.hrtime.bigint() - startTime) / 1000000; // ns → ms
     const level = res.statusCode >= 400 ? 'WARN' : 'INFO';
     
     console.log(`${new Date().toISOString()} [${level}] Request completed`, JSON.stringify({

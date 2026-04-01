@@ -3,17 +3,17 @@
 const { operatorMethods, openapiComponentsForDerive } = require('./operator-definition');
 
 /**
- * 从 methods[] 派生 OpenAPI paths（及可选 components.schemas）。
- * 算子文件不写顶层 openapi；由 discovery 在加载时注入 config.openapi。
+ * Derive OpenAPI paths (and optional components.schemas) from methods[].
+ * Discovery injects `config.openapi` when loading the operator module.
  *
- * @param {object} config - 算子 module.exports（根级 `methods` 或兼容 `genispace.methods`）
+ * @param {object} config operator module.exports (root `methods` or legacy `genispace.methods`)
  * @returns {{ paths: object, components?: { schemas: object } }}
  */
 function deriveOpenApiFromConfig(config) {
   const info = config.info || {};
   const methods = operatorMethods(config);
   if (methods.length === 0) {
-    throw new Error(`算子 ${info.name || '?'} 缺少非空 methods（根级或 genispace.methods）`);
+    throw new Error(`Operator ${info.name || '?'} has no methods (root or genispace.methods)`);
   }
 
   const paths = {};

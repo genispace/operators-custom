@@ -1,6 +1,4 @@
-/**
- * 日志直接输出到控制台
- */
+/** Console logger */
 
 function log(level, message, meta = {}) {
   const timestamp = new Date().toISOString();
@@ -14,7 +12,7 @@ const logger = {
   error: (message, meta = {}) => log('ERROR', message, meta),
   debug: (message, meta = {}) => log('DEBUG', message, meta),
   
-  // 兼容原有方法
+  // Legacy helpers
   request: (req, res, responseTime) => {
     const level = res.statusCode >= 400 ? 'WARN' : 'INFO';
     log(level, `${req.method} ${req.url} ${res.statusCode} ${responseTime}ms`);

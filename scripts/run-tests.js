@@ -1,7 +1,5 @@
 #!/usr/bin/env node
-/**
- * 递归收集 test 目录下所有 .test.js 并交给 node --test（跨平台）
- */
+/** Recursively collect *.test.js under test/ and run with node --test (cross-platform). */
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
