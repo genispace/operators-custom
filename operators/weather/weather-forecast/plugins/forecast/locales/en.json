@@ -1,0 +1,16 @@
+{
+  "feels_like": "Feels like",
+  "humidity": "Humidity",
+  "wind": "Wind",
+  "precip": "Precipitation",
+  "forecast_days": "day forecast",
+  "high_low": "High / Low",
+  "no_data": "No weather data",
+  "err_title": "Weather result",
+  "err_hint_INVALID_INPUT": "Provide a non-empty location.",
+  "err_hint_NOT_FOUND": "Try a shorter name, county/city without province prefix, or a well-known English name.",
+  "err_hint_UPSTREAM_ERROR": "The weather provider request failed; retry later or change the location.",
+  "err_hint_generic": "See error_message for details.",
+  "err_code_label": "Code",
+  "err_details": "Details"
+}

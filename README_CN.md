@@ -1,47 +1,57 @@
-# GeniSpace 自定义算子组件库
+# GeniSpace operators-internal（平台内置算子）
 
 **🌐 语言**: **中文** | [English](README.md)
 
-> 简单、强大、零学习成本的算子开发框架
+> **平台官方内置**算子服务：HTTP/OpenAPI 执行面 + 可选 **Chat 远程插件**（`/static/plugins` 托管）。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+
+本仓库与面向客户随意 fork 的 **`operators-custom` 模板仓** 不同：跟随平台版本发布，对接控制面导入与插件 URL 策略。**如何创建与维护算子**（目录、`*.operator.js` 与路由、用户/系统配置、`__config` 与 `configDelivery`、Chat 插件、认证、联调与部署）见 **[docs/creating-operators.md](docs/creating-operators.md)**。
 
 ## 💡 什么是算子？
 
-算子是将您的业务服务包装成标准接口的组件，可供 GeniSpace 人工智能平台的 AI 智能体和工作流调用。
+算子在 **`*.operator.js` 根级** 用 **`methods`** 声明 HTTP 方法与 JSON Schema；服务加载时 **派生 OpenAPI** 供 Swagger UI 与端点索引。可选根级 **`chatPluginByMethod`** 映射到导出定义里的 **`chatPluginConfig`**，Chat 通过 `loadRemotePlugin` 加载同仓构建的 `manifest.json` + 脚本做富展示。历史 **`genispace.methods` / `genispace.chatPluginByMethod`** 仍兼容。
 
-## 🚀 本项目能做什么？
+## 🚀 相对 operators-custom 的增量能力
 
-通过本框架，您可以：
-- **连接内部系统**：快速将 CRM、ERP、OA 等系统封装为算子
-- **制作专用工具**：开发邮件发送、PDF 生成、数据处理等功能算子
-- **零学习成本**：基于标准 OpenAPI 规范，无需学习新语法
+- **`PUBLIC_BASE_URL`**：导出 definition 时拼接绝对 **`pluginUrl`**。
+- **`npm run build:plugins`**：聚合 `operators/**/plugin/` → `public/plugins/`，经 **`/static/plugins`** 访问。
+- **`npm run dev`**：同时启动 Express（默认 `8080`）与 Vite 调试台（`18080`），表单 + 插件预览闭环。
+- **示范算子** `operators/web/web-browser/`：与 Agent 内置 `web_browser` 入参/校验/输出 JSON 对齐（无 Puppeteer）。
 
 ### 核心优势
 
-- 🚀 **零学习成本** - 使用标准 OpenAPI/Swagger 语法，不需要学习新框架
-- 📦 **开箱即用** - 克隆即用，自动发现算子，自动生成文档
-- 🔧 **架构清晰** - 配置与代码分离，维护简单
-- 🌐 **平台集成** - 完美集成 [genispace.com](https://genispace.com) 人工智能平台
+- 与 custom 相同的 **Express 路由** 模式；契约以 **methods** 为主、OpenAPI 为派生，并内置 **Chat 插件** 工程化路径。
+- 边界清晰：本仓实现 HTTP/静态插件；**注册与权限在 Core API**；**MCP 列表在 mcp-server**；**渲染在 Chat**。
 
-## 🚀 5分钟上手
+## 🚀 快速上手
 
-### 1. 启动服务
+### 1. 安装、构建插件、启动服务
 
 ```bash
-git clone https://github.com/genispace/operators-custom.git
-cd operators-custom
+git clone https://github.com/genispace/operators-internal.git
+cd operators-internal
 npm install
+npm run build:plugins
 npm start
 ```
 
 访问：
-- 🏠 **首页**：http://localhost:8080
-- 📚 **API文档**：http://localhost:8080/api/docs  
+- 🏠 **首页**：http://localhost:8080/api
+- 📚 **API 文档**：http://localhost:8080/api/docs  
 - 🔍 **健康检查**：http://localhost:8080/health
+- 📦 **示例插件**：http://localhost:8080/static/plugins/web/web-browser/manifest.json
 
-### 2. 测试算子
+### 2. 本地调试台
+
+```bash
+npm run dev
+```
+
+浏览器打开 **http://localhost:18080**（`/api` 与 `/static` 代理到 `8080`）。
+
+### 3. 测试算子
 
 ```bash
 # 运行回归测试
@@ -53,7 +63,7 @@ curl -X POST http://localhost:8080/api/text-processing/string-utils/format \
   -d '{"input":"hello world","options":{"case":"title"}}'
 ```
 
-### 3. 导入到 GeniSpace 平台
+### 4. 导入到 GeniSpace 平台
 
 1. 复制算子定义链接（从首页获取）
 2. 在 GeniSpace 平台选择"算子导入" → "GeniSpace算子定义"
@@ -73,7 +83,7 @@ touch operators/example/demo.routes.js    # 业务逻辑
 
 ### 配置文件示例
 
-**`demo.operator.js`** - 使用标准 OpenAPI 语法：
+**`demo.operator.js`** - 根级 **`methods`** 为唯一真相（加载时自动派生 OpenAPI，无需手写顶层 `openapi`）：
 
 ```javascript
 module.exports = {
@@ -85,52 +95,39 @@ module.exports = {
     category: 'example'
   },
   routes: './demo.routes.js',
-  openapi: {
-    paths: {
-      '/convert': {
-        post: {
-          summary: '转换文本大小写',
-          requestBody: {
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['text'],
-                  properties: {
-                    text: { type: 'string', example: 'hello' },
-                    toUpper: { type: 'boolean', default: true }
-                  }
-                }
-              }
-            }
-          },
-          responses: {
-            200: {
-              description: '转换成功',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      success: { type: 'boolean' },
-                      data: { 
-                        type: 'object',
-                        properties: {
-                          result: { type: 'string', example: 'HELLO' }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+  methods: [
+    {
+      identifier: 'convert',
+      name: '转换文本大小写',
+      description: '',
+      path: '/convert',
+      httpMethod: 'POST',
+      inputSchema: {
+        type: 'object',
+        required: ['text'],
+        properties: {
+          text: { type: 'string', example: 'hello' },
+          toUpper: { type: 'boolean', default: true }
+        }
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'object',
+            properties: {
+              result: { type: 'string', example: 'HELLO' }
             }
           }
         }
       }
     }
-  }
+  ]
 };
 ```
+
+可选字段：`tags`、`security`、`requestBodyRequired`（默认 `true`）、`additionalResponses`（仅影响派生 Swagger，如 401/400）、根级 **`openapiComponents.schemas`**（供 `$ref`，见 `genispace-info` 算子）。Chat 插件用根级 **`chatPluginByMethod`**，**key 与 `identifier` 小写一致**。仍支持旧写法 `genispace: { methods, chatPluginByMethod, openapiComponents }`。
 
 ### 业务逻辑文件
 
@@ -193,10 +190,13 @@ genispace-operators-custom/
 │   │   └── email-sender/   # 邮件发送器算子
 │   │       ├── email-sender.operator.js  # 算子配置
 │   │       └── email-sender.routes.js    # 业务逻辑
-│   └── platform/          # 平台集成算子
-│       └── genispace-info/ # GeniSpace平台信息算子
-│           ├── genispace-info.operator.js  # 算子配置
-│           └── genispace-info.routes.js    # 业务逻辑
+│   ├── web/               # 网页展示类（浏览器/重定向/HTML/iframe）
+│   ├── search/            # 搜索类（如 tavily-search）
+│   ├── weather/           # 天气类（weather-forecast）
+│   └── platform/          # 仅平台集成（genispace-info）
+│       └── genispace-info/
+│           ├── genispace-info.operator.js
+│           └── genispace-info.routes.js
 ├── src/                   # 核心框架（无需修改）
 │   ├── config/            # 配置管理
 │   ├── core/              # 核心服务（发现、注册、路由）

@@ -1,0 +1,254 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 浅色（与 Chat ActivityPanel 常见浅底一致，供插件 config.theme / class 对齐） */
+html.light {
+  --g-bg: #f8fafc;
+  --g-bg-raised: #ffffff;
+  --g-bg-card: #ffffff;
+  --g-bg-hover: #f1f5f9;
+  --g-border: rgba(15, 23, 42, 0.08);
+  --g-border-hover: rgba(15, 23, 42, 0.14);
+  --g-text: #0f172a;
+  --g-text-secondary: #475569;
+  --g-text-muted: #64748b;
+  --g-accent: #3b82f6;
+  --g-accent-hover: #2563eb;
+  --g-green: #059669;
+  --g-red: #dc2626;
+  --g-radius: 12px;
+  --g-radius-sm: 8px;
+}
+
+/* 深色（DESIGN_GUIDELINE） */
+html.dark {
+  --g-bg: #0b0b0f;
+  --g-bg-raised: #12121a;
+  --g-bg-card: #16161f;
+  --g-bg-hover: #1c1c28;
+  --g-border: rgba(255, 255, 255, 0.06);
+  --g-border-hover: rgba(255, 255, 255, 0.12);
+  --g-text: #e8e8ec;
+  --g-text-secondary: #9393a0;
+  --g-text-muted: #5c5c6e;
+  --g-accent: #3b82f6;
+  --g-accent-hover: #2563eb;
+  --g-green: #34d399;
+  --g-red: #f87171;
+  --g-radius: 12px;
+  --g-radius-sm: 8px;
+}
+
+/* 远程插件容器：与 web-browser 插件内 var(--border, #e5e7eb) 对齐 */
+.playground-plugin-host {
+  --border: #e5e7eb;
+}
+
+html.dark .playground-plugin-host {
+  --border: rgba(255, 255, 255, 0.12);
+}
+
+.theme-toggle-btn:hover,
+.nav-lang-btn:hover {
+  background: var(--g-bg-hover);
+}
+
+.nav-divider {
+  height: 1.5rem;
+  width: 1px;
+  background: var(--g-border);
+  flex-shrink: 0;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    background: var(--g-bg);
+    color: var(--g-text);
+    font-family: Inter, 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  .g-nav {
+    @apply border-b bg-g-raised;
+    border-color: var(--g-border);
+  }
+
+  .g-card {
+    background: var(--g-bg-card);
+    border: 1px solid var(--g-border);
+    border-radius: var(--g-radius);
+  }
+
+  .g-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: var(--g-radius);
+    font-size: 14px;
+    font-weight: 500;
+    background: var(--g-accent);
+    color: #fff;
+    box-shadow: 0 1px 3px rgba(59, 130, 246, 0.3);
+    transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+  }
+
+  .g-btn-primary:hover:not(:disabled) {
+    background: var(--g-accent-hover);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);
+  }
+
+  .g-btn-primary:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .g-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .g-select {
+    height: 36px;
+    min-width: 0;
+    border-radius: var(--g-radius-sm);
+    border: 1px solid var(--g-border);
+    background: var(--g-bg-card);
+    color: var(--g-text);
+    padding: 0 12px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .g-select:hover {
+    border-color: var(--g-border-hover);
+  }
+
+  .g-select:focus {
+    border-color: rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  }
+
+  .g-select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .g-pre {
+    max-height: min(70vh, 560px);
+    overflow: auto;
+    border-radius: var(--g-radius-sm);
+    border: 1px solid var(--g-border);
+    background: var(--g-bg-raised);
+    padding: 16px 20px;
+    font-family: 'Geist Mono', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--g-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+/* RJSF — 使用 --g-* 令牌，随 html.light / html.dark 切换 */
+.playground-rjsf .form-group,
+.playground-rjsf .field,
+.playground-rjsf .field-array,
+.playground-rjsf .field-object {
+  margin-bottom: 14px;
+}
+
+.playground-rjsf label,
+.playground-rjsf .control-label {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.playground-rjsf .field-description {
+  color: var(--g-text-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.playground-rjsf input[type='text'],
+.playground-rjsf input[type='number'],
+.playground-rjsf input[type='email'],
+.playground-rjsf input[type='url'],
+.playground-rjsf textarea,
+.playground-rjsf select {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: var(--g-radius-sm);
+  border: 1px solid var(--g-border);
+  background: var(--g-bg-raised);
+  color: var(--g-text);
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.playground-rjsf input:focus,
+.playground-rjsf textarea:focus,
+.playground-rjsf select:focus {
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.playground-rjsf .checkbox label,
+.playground-rjsf .radio label {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 14px;
+  color: var(--g-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.playground-rjsf .errors,
+.playground-rjsf .error-detail {
+  color: var(--g-red);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.playground-rjsf .panel {
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-sm);
+  background: var(--g-bg-raised);
+  margin-bottom: 12px;
+  padding: 12px;
+}
+
+.playground-rjsf .panel-title {
+  color: var(--g-text);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.playground-rjsf fieldset {
+  border: 1px solid var(--g-border);
+  border-radius: var(--g-radius-sm);
+  padding: 12px;
+  margin: 0 0 12px;
+}
+
+.playground-rjsf legend {
+  color: var(--g-text-secondary);
+  font-size: 12px;
+  padding: 0 6px;
+}

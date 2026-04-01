@@ -1,7 +1,6 @@
 /**
- * Swagger/OpenAPI 配置
- * 
- * 定义API文档的基础配置和通用组件
+ * Swagger / OpenAPI 3.0 base document: info, servers, security schemes, reusable schemas,
+ * common responses, and tag grouping for the operators service.
  */
 
 const config = require('./env');
@@ -13,57 +12,47 @@ const swaggerConfig = {
       title: 'GeniSpace Custom Operators API',
       version: '1.0.0',
       description: `
-GeniSpace AI 平台的轻量级自定义算子组件库 API
+Lightweight GeniSpace custom operators API.
 
-## 功能特性
+## Features
 
-- 🚀 **算子自动发现**: 自动扫描和加载算子组件
-- 📚 **标准化文档**: 符合OpenAPI 3.0规范的API文档
-- 🔧 **即插即用**: 支持热插拔式算子开发
-- 🐳 **容器化**: 支持Docker容器化部署
-- 🔗 **平台集成**: 完全兼容GeniSpace平台导入功能
+- **Auto-discovery**: scan and load operator modules
+- **OpenAPI 3.0**: standard API documentation
+- **Pluggable**: hot-pluggable operator development
+- **Container-ready**: Docker-friendly deployment
+- **Platform integration**: importable into GeniSpace
 
-## 算子分类
+## Operator categories
 
-- **text-processing**: 文本处理算子
-- **data-transform**: 数据转换算子  
-- **notification**: 通知服务算子
-- **file-processing**: 文件处理算子
-- **api-integration**: API集成算子
-- **validation**: 数据验证算子
-- **utility**: 通用工具算子
+- **text-processing**, **data-transform**, **notification**, **file-processing**
+- **api-integration**, **validation**, **utility**
 
-## 认证方式
+## Authentication
 
-### GeniSpace 平台认证
+### GeniSpace
 
-需要认证的算子需要提供有效的 GeniSpace API Key：
+Protected operators require a valid GeniSpace API key:
 
 \`\`\`
 Authorization: GeniSpace <your-api-key>
 \`\`\`
 
-### 公共接口
+### Public endpoints
 
-以下接口无需认证即可访问：
-- \`${config.apiPrefix}\` - 首页
-- \`/health\` - 健康检查
-- \`${config.apiPrefix}/docs\` - API 文档
-- \`${config.apiPrefix}/docs.json\` - API 文档 JSON
-- \`${config.apiPrefix}/operators\` - 算子列表
-- \`${config.apiPrefix}/operators/:category/:operator/definition\` - 算子定义文件
+- \`${config.apiPrefix}\` — home
+- \`/health\` — health check
+- \`${config.apiPrefix}/docs\` — Swagger UI
+- \`${config.apiPrefix}/docs.json\` — OpenAPI JSON
+- \`${config.apiPrefix}/operators\` — operator list
+- \`${config.apiPrefix}/operators/:category/:operator/definition\` — operator definition
 
-## 错误处理
+## Errors
 
-所有API都遵循统一的错误响应格式，包含错误码、错误信息和时间戳。
+Responses use a consistent shape: code, message, and timestamp.
 
-## 速率限制
+## Rate limiting
 
-为了保护服务稳定性，API调用受到速率限制：
-- 窗口时间: 15分钟
-- 最大请求数: 100次/IP
-
-超过限制将返回 429 状态码。
+Default: 15-minute window, 100 requests per IP. Exceeded limits return HTTP 429.
       `,
       termsOfService: 'https://genispace.com/terms',
       contact: {
@@ -79,7 +68,7 @@ Authorization: GeniSpace <your-api-key>
     servers: [
       {
         url: process.env.API_BASE_URL || `http://localhost:${config.port}`,
-        description: '开发服务器'
+        description: 'Development server'
       }
     ],
     components: {
@@ -88,12 +77,12 @@ Authorization: GeniSpace <your-api-key>
           type: 'apiKey',
           in: 'header',
           name: 'Authorization',
-          description: 'GeniSpace API Key 认证，格式：GeniSpace <your-api-key>'
+          description: 'GeniSpace API key. Format: GeniSpace <your-api-key>'
         }
       },
       
       schemas: {
-        // 通用响应Schema
+        // Standard success envelope (success + data + timestamp)
         SuccessResponse: {
           type: 'object',
           required: ['success', 'data', 'timestamp'],
@@ -101,22 +90,22 @@ Authorization: GeniSpace <your-api-key>
             success: {
               type: 'boolean',
               example: true,
-              description: '请求是否成功'
+              description: 'Whether the request succeeded'
             },
             data: {
               type: 'object',
-              description: '响应数据'
+              description: 'Response payload'
             },
             timestamp: {
               type: 'string',
               format: 'date-time',
-              description: '响应时间',
+              description: 'Response timestamp',
               example: '2025-01-01T12:00:00.000Z'
             }
           }
         },
-        
-        // 错误响应Schema
+
+        // Standard error envelope
         ErrorResponse: {
           type: 'object',
           required: ['success', 'error', 'timestamp'],
@@ -124,32 +113,32 @@ Authorization: GeniSpace <your-api-key>
             success: {
               type: 'boolean',
               example: false,
-              description: '请求是否成功'
+              description: 'Whether the request succeeded'
             },
             error: {
               type: 'string',
-              description: '错误信息',
-              example: '参数验证失败'
+              description: 'Error message',
+              example: 'Parameter validation failed'
             },
             code: {
               type: 'string',
-              description: '错误代码',
+              description: 'Error code',
               example: 'VALIDATION_ERROR'
             },
             details: {
               type: 'object',
-              description: '错误详情'
+              description: 'Error details'
             },
             timestamp: {
               type: 'string',
               format: 'date-time',
-              description: '错误发生时间',
+              description: 'Error timestamp',
               example: '2025-01-01T12:00:00.000Z'
             }
           }
         },
-        
-        // 健康检查响应Schema
+
+        // GET /health payload shape
         HealthResponse: {
           type: 'object',
           properties: {
@@ -163,31 +152,31 @@ Authorization: GeniSpace <your-api-key>
                 status: {
                   type: 'string',
                   example: 'healthy',
-                  description: '服务状态'
+                  description: 'Service status'
                 },
                 uptime: {
                   type: 'number',
-                  description: '运行时间（秒）',
+                  description: 'Uptime in seconds',
                   example: 3600
                 },
                 timestamp: {
                   type: 'string',
                   format: 'date-time',
-                  description: '检查时间'
+                  description: 'Check timestamp'
                 },
                 version: {
                   type: 'string',
-                  description: '服务版本',
+                  description: 'Service version',
                   example: '1.0.0'
                 },
                 environment: {
                   type: 'string',
-                  description: '运行环境',
+                  description: 'Runtime environment',
                   example: 'production'
                 },
                 memory: {
                   type: 'object',
-                  description: '内存使用情况',
+                  description: 'Memory usage',
                   properties: {
                     rss: { type: 'number' },
                     heapTotal: { type: 'number' },
@@ -197,20 +186,20 @@ Authorization: GeniSpace <your-api-key>
                 },
                 operators: {
                   type: 'object',
-                  description: '算子统计信息',
+                  description: 'Operator statistics',
                   properties: {
                     loaded: {
                       type: 'integer',
-                      description: '已加载的算子数量'
+                      description: 'Number of loaded operators'
                     },
                     categories: {
                       type: 'array',
                       items: { type: 'string' },
-                      description: '算子分类列表'
+                      description: 'Operator categories'
                     },
                     endpoints: {
                       type: 'integer',
-                      description: 'API端点数量'
+                      description: 'Number of API endpoints'
                     }
                   }
                 }
@@ -218,57 +207,57 @@ Authorization: GeniSpace <your-api-key>
             }
           }
         },
-        
-        // 算子信息Schema
+
+        // Single operator summary for catalog responses
         OperatorInfo: {
           type: 'object',
           properties: {
             name: {
               type: 'string',
-              description: '算子名称',
+              description: 'Operator name',
               example: 'string-utils'
             },
             title: {
               type: 'string',
-              description: '算子标题',
-              example: '字符串工具'
+              description: 'Operator title',
+              example: 'String utilities'
             },
             description: {
               type: 'string',
-              description: '算子描述',
-              example: '提供字符串处理相关功能'
+              description: 'Operator description',
+              example: 'Provides string utilities'
             },
             version: {
               type: 'string',
-              description: '算子版本',
+              description: 'Operator version',
               example: '1.0.0'
             },
             category: {
               type: 'string',
-              description: '算子分类',
+              description: 'Operator category',
               example: 'text-processing'
             },
             tags: {
               type: 'array',
               items: { type: 'string' },
-              description: '算子标签',
+              description: 'Operator tags',
               example: ['string', 'text', 'utility']
             },
             author: {
               type: 'string',
-              description: '算子作者',
+              description: 'Operator author',
               example: 'genispace.com Dev Team'
             },
             endpoints: {
               type: 'array',
               items: { type: 'string' },
-              description: 'API端点列表',
+              description: 'API endpoint list',
               example: [`${config.apiPrefix}/text-processing/string-utils/format`]
             }
           }
         },
-        
-        // 算子列表响应Schema
+
+        // Operator registry list wrapper
         OperatorListResponse: {
           type: 'object',
           properties: {
@@ -282,22 +271,22 @@ Authorization: GeniSpace <your-api-key>
                 operators: {
                   type: 'array',
                   items: { $ref: '#/components/schemas/OperatorInfo' },
-                  description: '算子列表'
+                  description: 'Operator list'
                 },
                 total: {
                   type: 'integer',
-                  description: '算子总数',
+                  description: 'Total operators',
                   example: 8
                 },
                 categories: {
                   type: 'array',
                   items: { type: 'string' },
-                  description: '分类列表',
+                  description: 'Category list',
                   example: ['text-processing', 'data-transform', 'notification']
                 },
                 endpoints: {
                   type: 'integer',
-                  description: 'API端点总数',
+                  description: 'Total API endpoints',
                   example: 15
                 }
               }
@@ -305,17 +294,17 @@ Authorization: GeniSpace <your-api-key>
           }
         }
       },
-      
+
+      // Reusable HTTP problem responses (referenced by route specs)
       responses: {
-        // 通用错误响应
         BadRequest: {
-          description: '请求参数错误',
+          description: 'Bad request',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' },
               example: {
                 success: false,
-                error: '请求参数不完整或格式错误',
+                error: 'Request parameters are missing or invalid',
                 code: 'BAD_REQUEST',
                 timestamp: '2025-01-01T12:00:00.000Z'
               }
@@ -324,13 +313,13 @@ Authorization: GeniSpace <your-api-key>
         },
         
         NotFound: {
-          description: '资源不存在',
+          description: 'Resource not found',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' },
               example: {
                 success: false,
-                error: '请求的资源不存在',
+                error: 'The requested resource does not exist',
                 code: 'NOT_FOUND',
                 timestamp: '2025-01-01T12:00:00.000Z'
               }
@@ -339,13 +328,13 @@ Authorization: GeniSpace <your-api-key>
         },
         
         InternalServerError: {
-          description: '内部服务器错误',
+          description: 'Internal server error',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' },
               example: {
                 success: false,
-                error: '服务器内部错误，请稍后重试',
+                error: 'Internal server error; try again later',
                 code: 'INTERNAL_ERROR',
                 timestamp: '2025-01-01T12:00:00.000Z'
               }
@@ -354,13 +343,13 @@ Authorization: GeniSpace <your-api-key>
         },
         
         RateLimitExceeded: {
-          description: '请求频率超限',
+          description: 'Rate limit exceeded',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' },
               example: {
                 success: false,
-                error: '请求过于频繁，请稍后再试',
+                error: 'Too many requests; try again later',
                 code: 'RATE_LIMIT_EXCEEDED',
                 timestamp: '2025-01-01T12:00:00.000Z'
               }
@@ -369,15 +358,15 @@ Authorization: GeniSpace <your-api-key>
         },
         
         Unauthorized: {
-          description: 'GeniSpace API Key 认证失败',
+          description: 'GeniSpace API key authentication failed',
           content: {
             'application/json': {
               schema: { $ref: '#/components/schemas/ErrorResponse' },
               example: {
                 success: false,
-                error: '缺少 GeniSpace API Key',
+                error: 'Missing GeniSpace API key',
                 code: 'MISSING_GENISPACE_API_KEY',
-                message: '请在 Authorization 头中提供 GeniSpace API Key，格式：Authorization: GeniSpace <your-api-key>',
+                message: 'Provide a GeniSpace API key in the Authorization header: Authorization: GeniSpace <your-api-key>',
                 timestamp: '2025-01-01T12:00:00.000Z'
               }
             }
@@ -386,12 +375,12 @@ Authorization: GeniSpace <your-api-key>
       },
       
       parameters: {
-        // 通用参数
+        // Path param shared by operator-scoped routes
         CategoryParam: {
           name: 'category',
           in: 'path',
           required: true,
-          description: '算子分类',
+          description: 'Operator category',
           schema: {
             type: 'string',
             enum: ['text-processing', 'data-transform', 'notification', 'file-processing', 'api-integration', 'validation', 'utility']
@@ -404,39 +393,39 @@ Authorization: GeniSpace <your-api-key>
     tags: [
       {
         name: 'System',
-        description: '系统相关API'
+        description: 'System APIs'
       },
       {
         name: 'Operators',
-        description: '算子管理API'
+        description: 'Operator management APIs'
       },
       {
         name: 'Text Processing',
-        description: '文本处理算子'
+        description: 'Text processing operators'
       },
       {
         name: 'Data Transform',
-        description: '数据转换算子'
+        description: 'Data transform operators'
       },
       {
         name: 'Notification',
-        description: '通知服务算子'
+        description: 'Notification operators'
       },
       {
         name: 'File Processing',
-        description: '文件处理算子'
+        description: 'File processing operators'
       },
       {
         name: 'API Integration',
-        description: 'API集成算子'
+        description: 'API integration operators'
       },
       {
         name: 'Validation',
-        description: '数据验证算子'
+        description: 'Validation operators'
       },
       {
         name: 'Utility',
-        description: '通用工具算子'
+        description: 'Utility operators'
       }
     ]
   },

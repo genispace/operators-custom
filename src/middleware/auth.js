@@ -1,27 +1,26 @@
 /**
- * 极简 GeniSpace 认证中间件
- * 确保绝对不会崩溃
- * 
- * 支持的认证头格式：
- * - Authorization: GeniSpace <api_key>  
+ * Minimal GeniSpace authentication middleware (must not throw).
+ *
+ * Supported headers:
+ * - Authorization: GeniSpace <api_key>
  * - GeniSpace: <api_key>
- * 
- * 使用说明：
- * 1. API类型算子在运行配置中启用"GeniSpace认证"选项
- * 2. 算子执行时会自动传递System API Key用于身份验证
- * 3. 验证成功后可通过 req.genispace 获取用户信息和API Key信息
- * 4. 需要认证的算子需要自己调用 checkAuth() 方法进行验证
- * 
- * 示例：
+ *
+ * Does not use `Authorization: Bearer <token>` to avoid clashing with custom operators.
+ *
+ * Usage:
+ * 1. Enable GeniSpace authentication for API-type operators in runtime config when needed.
+ * 2. The platform may forward a system API key for verification.
+ * 3. On success, `req.genispace` holds user, client, apiKey, and keyInfo.
+ * 4. Operators that require auth should call `checkAuth()` in the route handler.
+ *
+ * Example:
  * ```javascript
- * // 在算子中获取执行人信息
  * app.post('/my-operator', auth(), (req, res) => {
  *   if (req.genispace) {
- *     console.log('执行人:', req.genispace.user.name);
- *     console.log('团队ID:', req.genispace.keyInfo.teamId);
- *     console.log('API Key:', req.genispace.apiKey);
+ *     console.log('User:', req.genispace.user.name);
+ *     console.log('Team ID:', req.genispace.keyInfo?.teamId);
  *   }
- *   // 算子逻辑...
+ *   // operator logic...
  * });
  * ```
  */
@@ -30,11 +29,11 @@ const GeniSpace = require('genispace');
 const config = require('../config/env');
 const logger = require('../utils/logger');
 
-// 简单缓存（可使用Redis等）
+// In-memory validation cache (can be replaced with Redis for multi-instance setups)
 const authCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5分钟
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// 清理过期缓存
+// Periodically drop expired cache entries
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of authCache.entries()) {
@@ -44,24 +43,16 @@ setInterval(() => {
   }
 }, CACHE_TTL);
 
-/**
- * 提取 API Key
- * 支持以下格式：
- * - Authorization: GeniSpace <api_key>  
- * - GeniSpace: <api_key>
- * 
- * 注意：不支持 Authorization: Bearer <api_key> 格式，
- * 避免与用户自定义算子的认证头产生冲突
- */
+/** Extract API key; does not support Bearer scheme (avoids clashes with custom operators). */
 function extractApiKey(req) {
   try {
-    // 优先检查 GeniSpace 头
+    // Prefer dedicated GeniSpace header when present
     const geniSpaceHeader = req.headers.genispace;
     if (geniSpaceHeader) {
       return geniSpaceHeader;
     }
-    
-    // 检查 Authorization 头中的 GeniSpace 格式
+
+    // Authorization: GeniSpace <api_key>
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('GeniSpace ')) {
       return authHeader.substring(10);
@@ -74,30 +65,28 @@ function extractApiKey(req) {
 }
 
 /**
- * 通过SDK验证 API Key
+ * Validate an API key via the GeniSpace SDK (`apiKeys.validate` when available,
+ * otherwise profile fetch as a fallback).
  */
 async function validateApiKeyViaSDK(apiKey) {
   try {
     const baseUrl = config.genispace?.auth?.baseUrl || 'https://api.genispace.com';
     const timeout = config.genispace?.auth?.timeout || 10000;
     
-    logger.debug('创建 GeniSpace SDK 客户端', {
+    logger.debug('Creating GeniSpace SDK client', {
       baseUrl,
       timeout,
       envBaseUrl: process.env.GENISPACE_API_BASE_URL,
       configBaseUrl: config.genispace?.auth?.baseUrl
     });
     
-    // 创建SDK客户端实例，使用被验证的API Key
     const client = new GeniSpace({
       apiKey: apiKey,
       baseURL: baseUrl,
       timeout: timeout
     });
 
-    // 使用SDK的验证方法验证API Key
     if (client.apiKeys && typeof client.apiKeys.validate === 'function') {
-      // 使用SDK的验证接口
       const validationResult = await client.apiKeys.validate(apiKey);
       
       if (validationResult.success && validationResult.data.valid) {
@@ -120,11 +109,11 @@ async function validateApiKeyViaSDK(apiKey) {
       } else {
         return {
           success: false,
-          error: validationResult.data?.reason || 'API Key 验证失败'
+          error: validationResult.data?.reason || 'API key validation failed'
         };
       }
     } else {
-      // 备用方案：通过获取用户资料来验证API Key
+      // Fallback when validate() is unavailable: prove the key by loading profile
       const user = await client.users.getProfile();
       
       return {
@@ -140,41 +129,36 @@ async function validateApiKeyViaSDK(apiKey) {
     }
 
   } catch (e) {
-    logger.error('SDK API Key验证失败', {
+    logger.error('SDK API key validation failed', {
       error: e.message,
       code: e.code
     });
     
     return {
       success: false,
-      error: 'API Key 验证失败'
+      error: 'API key validation failed'
     };
   }
 }
 
-/**
- * 验证 API Key (使用SDK)
- */
+/** Public wrapper around {@link validateApiKeyViaSDK} with top-level error handling. */
 async function validateApiKey(apiKey) {
   try {
-    // 直接使用SDK验证API Key
     return await validateApiKeyViaSDK(apiKey);
 
   } catch (e) {
-    logger.error('API Key验证异常', {
+    logger.error('API key validation error', {
       error: e.message
     });
     
     return {
       success: false,
-      error: 'API Key验证服务异常'
+      error: 'API key validation service error'
     };
   }
 }
 
-/**
- * 获取缓存
- */
+/** Return a cached auth result if TTL has not expired. */
 function getCache(apiKey) {
   try {
     const key = `auth:${apiKey.substring(0, 8)}`;
@@ -190,9 +174,7 @@ function getCache(apiKey) {
   }
 }
 
-/**
- * 设置缓存
- */
+/** Persist a successful validation in the in-memory cache. */
 function setCache(apiKey, result) {
   try {
     const key = `auth:${apiKey.substring(0, 8)}`;
@@ -201,19 +183,20 @@ function setCache(apiKey, result) {
       expiresAt: Date.now() + CACHE_TTL
     });
   } catch (e) {
-    // 忽略缓存错误
+    // Ignore cache write failures
   }
 }
 
 /**
- * 认证中间件
+ * Express middleware: when an API key is present on API routes, validate it and
+ * attach `req.genispace`. Operators still call `checkAuth()` for strict enforcement.
  */
 function auth() {
   return async (req, res, next) => {
     try {
       const apiPrefix = config.apiPrefix || '/api';
-      
-      // 公开路径
+
+      // Unauthenticated entry points (home, docs, operator list, definitions, health)
       const publicPaths = [
         apiPrefix,
         '/health',
@@ -228,27 +211,23 @@ function auth() {
         return next();
       }
 
-      // 只对 API 前缀路径处理
+      // Non-API routes are untouched
       if (!req.path.startsWith(apiPrefix)) {
         return next();
       }
 
-      // 提取 API Key
       const apiKey = extractApiKey(req);
 
-      // 如果存在 API Key，尝试验证并设置 req.genispace
-      // 算子自己会通过 checkAuth 方法判断是否需要认证
+      // If a key exists, try to validate and populate req.genispace; operators decide auth requirements
       if (apiKey) {
         try {
-          // 记录验证开始
-          logger.debug('开始验证 API Key', {
+          logger.debug('Validating API key', {
             path: req.path,
             apiKeyPrefix: apiKey.substring(0, 8) + '...',
             baseUrl: config.genispace?.auth?.baseUrl,
             timeout: config.genispace?.auth?.timeout
           });
-          
-          // 检查缓存
+
           let authResult = getCache(apiKey);
           
           if (!authResult) {
@@ -256,20 +235,20 @@ function auth() {
             
             if (authResult && authResult.success) {
               setCache(apiKey, authResult);
-              logger.debug('API Key 验证成功', {
+              logger.debug('API key validation succeeded', {
                 path: req.path,
                 userId: authResult.user?.id
               });
             } else {
-              logger.warn('API Key 验证失败', {
+              logger.warn('API key validation failed', {
                 path: req.path,
                 apiKeyPrefix: apiKey.substring(0, 8) + '...',
-                error: authResult?.error || '未知错误',
+                error: authResult?.error || 'unknown error',
                 baseUrl: config.genispace?.auth?.baseUrl
               });
             }
           } else {
-            logger.debug('使用缓存的 API Key 验证结果', {
+            logger.debug('Using cached API key validation result', {
               path: req.path,
               userId: authResult.user?.id
             });
@@ -282,13 +261,13 @@ function auth() {
               apiKey: apiKey,
               keyInfo: authResult.keyInfo
             };
-            logger.debug('req.genispace 已设置', {
+            logger.debug('req.genispace set', {
               path: req.path,
               hasClient: !!req.genispace.client,
               userId: req.genispace.user?.id
             });
           } else {
-            logger.warn('req.genispace 未设置，验证失败', {
+            logger.warn('req.genispace not set; validation failed', {
               path: req.path,
               hasAuthResult: !!authResult,
               authSuccess: authResult?.success,
@@ -296,8 +275,8 @@ function auth() {
             });
           }
         } catch (error) {
-          // 记录验证错误，但继续执行，让算子自己判断
-          logger.error('API Key 验证异常', {
+          // Log but continue: let the operator respond with 401 if checkAuth() fails
+          logger.error('API key validation error', {
             path: req.path,
             error: error.message,
             stack: error.stack,
@@ -305,7 +284,7 @@ function auth() {
           });
         }
       } else {
-        logger.debug('请求中未找到 API Key', {
+        logger.debug('No API key in request', {
           path: req.path,
           headers: Object.keys(req.headers).filter(h => {
             const lower = h.toLowerCase();
@@ -317,8 +296,8 @@ function auth() {
       next();
 
     } catch (error) {
-      // 绝对安全的错误处理
-      logger.error('认证中间件错误', {
+      // Should be rare: respond 500 without throwing further
+      logger.error('Auth middleware error', {
         error: error ? (error.message || String(error)) : 'Unknown error',
         endpoint: req.path,
         stack: error ? error.stack : 'No stack trace'
@@ -326,7 +305,7 @@ function auth() {
       
       return res.status(500).json({
         success: false,
-        error: '认证服务错误'
+        error: 'Authentication service error'
       });
     }
   };

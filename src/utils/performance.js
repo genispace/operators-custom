@@ -1,7 +1,5 @@
 /**
- * 性能优化工具
- * 
- * 提供轻量级的性能优化功能
+ * Lightweight performance helpers (object pool, debounce, throttle, LRU).
  */
 
 class ObjectPool {
@@ -9,8 +7,7 @@ class ObjectPool {
     this.createFn = createFn;
     this.resetFn = resetFn;
     this.pool = [];
-    
-    // 预创建对象
+
     for (let i = 0; i < initialSize; i++) {
       this.pool.push(this.createFn());
     }
@@ -32,7 +29,7 @@ class ObjectPool {
   }
 }
 
-// 响应对象池
+// Reuse plain objects shaped like API responses to cut allocations on hot paths
 const responsePool = new ObjectPool(
   () => ({ success: true, data: null, timestamp: null }),
   (obj) => {
@@ -47,39 +44,21 @@ const responsePool = new ObjectPool(
   50
 );
 
-/**
- * 快速创建响应对象
- * @param {boolean} success - 是否成功
- * @param {*} data - 数据或错误信息
- * @param {object} extra - 额外字段
- * @returns {object} 响应对象
- */
 function createFastResponse(success, data, extra = {}) {
   const response = responsePool.acquire();
   response.success = success;
   response.data = data;
   response.timestamp = new Date().toISOString();
-  
-  // 添加额外字段
+
   Object.assign(response, extra);
-  
+
   return response;
 }
 
-/**
- * 释放响应对象
- * @param {object} response - 响应对象
- */
 function releaseFastResponse(response) {
   responsePool.release(response);
 }
 
-/**
- * 防抖函数
- * @param {Function} func - 要防抖的函数
- * @param {number} wait - 等待时间（毫秒）
- * @returns {Function} 防抖后的函数
- */
 function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
@@ -92,12 +71,6 @@ function debounce(func, wait) {
   };
 }
 
-/**
- * 节流函数
- * @param {Function} func - 要节流的函数
- * @param {number} limit - 限制时间（毫秒）
- * @returns {Function} 节流后的函数
- */
 function throttle(func, limit) {
   let inThrottle;
   return function executedFunction(...args) {
@@ -109,9 +82,6 @@ function throttle(func, limit) {
   };
 }
 
-/**
- * 简单的LRU缓存
- */
 class LRUCache {
   constructor(maxSize = 100) {
     this.maxSize = maxSize;
@@ -121,7 +91,6 @@ class LRUCache {
   get(key) {
     if (this.cache.has(key)) {
       const value = this.cache.get(key);
-      // 重新插入以更新顺序
       this.cache.delete(key);
       this.cache.set(key, value);
       return value;
@@ -133,7 +102,6 @@ class LRUCache {
     if (this.cache.has(key)) {
       this.cache.delete(key);
     } else if (this.cache.size >= this.maxSize) {
-      // 删除最旧的项
       const firstKey = this.cache.keys().next().value;
       this.cache.delete(firstKey);
     }

@@ -1,47 +1,57 @@
-# GeniSpace Custom Operators Library
+# GeniSpace operators-internal
 
 **🌐 Language**: [中文](README_CN.md) | **English**
 
-> Simple, powerful, zero-learning-cost operator development framework
+> **Platform-internal** operator service: OpenAPI HTTP operators plus optional **Chat remote plugins** served from `/static/plugins`.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+
+This repository is **not** the customer-facing `operators-custom` template. It ships **official built-in operators** for GeniSpace (release cadence follows the platform). **Authoring guide** (directory layout, `*.operator.js` / routes, user vs system configuration, `__config` / `configDelivery`, Chat plugins, auth, local dev, deploy): [docs/creating-operators.md](docs/creating-operators.md).
 
 ## 💡 What is an Operator?
 
-An operator is a component that wraps your business services into standardized interfaces, available for AI agents and workflows on the GeniSpace AI platform.
+An operator declares HTTP methods and JSON Schemas in root-level **`methods`**. At load time the service **derives OpenAPI** for Swagger and endpoint indexing. Optional root **`chatPluginByMethod`** maps to exported **`chatPluginConfig`** so Chat can load a **remote plugin** (`manifest.json` + JS bundle) for rich UI. Legacy **`genispace.*`** nesting remains supported.
 
-## 🚀 What Can This Project Do?
+## 🚀 What This Repo Adds (vs operators-custom)
 
-With this framework, you can:
-- **Connect Internal Systems**: Quickly wrap CRM, ERP, OA systems as operators
-- **Create Specialized Tools**: Develop operators for email sending, PDF generation, data processing, etc.
-- **Zero Learning Curve**: Based on standard OpenAPI specifications, no new syntax to learn
+- **`PUBLIC_BASE_URL`** (or `OPERATORS_BASE_URL`) for absolute **`pluginUrl`** in exported definitions.
+- **`npm run build:plugins`** → copies each `operators/**/plugin/` into `public/plugins/...`, served at **`/static/plugins/...`**.
+- **`npm run dev`** → Express (default `:8080`) + Vite playground (`:18080`) for schema forms and plugin preview.
+- **Pilot operator**: `operators/web/web-browser/` aligned with the Python `web_browser` builtin (input validation + MCP-shaped JSON only; no headless browser).
 
 ### Core Advantages
 
-- 🚀 **Zero Learning Curve** - Uses standard OpenAPI/Swagger syntax, no new framework to learn
-- 📦 **Ready to Use** - Clone and run, automatic operator discovery, automatic documentation generation
-- 🔧 **Clear Architecture** - Configuration and code separation, simple maintenance
-- 🌐 **Platform Integration** - Perfect integration with [genispace.com](https://genispace.com) AI platform
+- Same **Express** routing model as custom operators; contract is **methods-first** with **derived OpenAPI**, plus **first-class Chat plugin** workflow.
+- **Clear boundary**: implementation here, registration and ACL in **Core API**, tool listing in **MCP-Server**, rendering in **Chat**.
 
-## 🚀 5-Minute Quick Start
+## 🚀 Quick Start
 
-### 1. Start Service
+### 1. Install, build plugins, start API
 
 ```bash
-git clone https://github.com/genispace/operators-custom.git
-cd operators-custom
+git clone https://github.com/genispace/operators-internal.git
+cd operators-internal
 npm install
+npm run build:plugins
 npm start
 ```
 
 Access:
-- 🏠 **Homepage**: http://localhost:8080
+- 🏠 **Homepage**: http://localhost:8080/api (HTML index)
 - 📚 **API Docs**: http://localhost:8080/api/docs  
 - 🔍 **Health Check**: http://localhost:8080/health
+- 📦 **Example plugin manifest**: http://localhost:8080/static/plugins/web/web-browser/manifest.json
 
-### 2. Test Operators
+### 2. Dev playground (operators + UI preview)
+
+```bash
+npm run dev
+```
+
+Open **http://localhost:18080** — API and `/static` are proxied to `8080`.
+
+### 3. Test Operators
 
 ```bash
 # Run regression tests
@@ -53,7 +63,7 @@ curl -X POST http://localhost:8080/api/text-processing/string-utils/format \
   -d '{"input":"hello world","options":{"case":"title"}}'
 ```
 
-### 3. Import to GeniSpace Platform
+### 4. Import to GeniSpace Platform
 
 1. Copy operator definition link (from homepage)
 2. In GeniSpace platform, select "Operator Import" → "GeniSpace Operator Definition"
@@ -73,7 +83,7 @@ touch operators/example/demo.routes.js    # Business logic
 
 ### Configuration File Example
 
-**`demo.operator.js`** - Using standard OpenAPI syntax:
+**`demo.operator.js`** - root **`methods`** as the single source of truth (OpenAPI is derived at load time; do not hand-write a top-level `openapi` block):
 
 ```javascript
 module.exports = {
@@ -85,52 +95,39 @@ module.exports = {
     category: 'example'
   },
   routes: './demo.routes.js',
-  openapi: {
-    paths: {
-      '/convert': {
-        post: {
-          summary: 'Convert text case',
-          requestBody: {
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['text'],
-                  properties: {
-                    text: { type: 'string', example: 'hello' },
-                    toUpper: { type: 'boolean', default: true }
-                  }
-                }
-              }
-            }
-          },
-          responses: {
-            200: {
-              description: 'Conversion successful',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: {
-                      success: { type: 'boolean' },
-                      data: { 
-                        type: 'object',
-                        properties: {
-                          result: { type: 'string', example: 'HELLO' }
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+  methods: [
+    {
+      identifier: 'convert',
+      name: 'Convert text case',
+      description: '',
+      path: '/convert',
+      httpMethod: 'POST',
+      inputSchema: {
+        type: 'object',
+        required: ['text'],
+        properties: {
+          text: { type: 'string', example: 'hello' },
+          toUpper: { type: 'boolean', default: true }
+        }
+      },
+      outputSchema: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean' },
+          data: {
+            type: 'object',
+            properties: {
+              result: { type: 'string', example: 'HELLO' }
             }
           }
         }
       }
     }
-  }
+  ]
 };
 ```
+
+Optional: `tags`, `security`, `requestBodyRequired` (default `true`), `additionalResponses` (Swagger-only extra status codes), root **`openapiComponents.schemas`** for `$ref` (see `genispace-info`). For Chat plugins, use root **`chatPluginByMethod`** with keys matching **`identifier`** (lowercase). Legacy `genispace: { methods, chatPluginByMethod, openapiComponents }` still works.
 
 ### Business Logic File
 

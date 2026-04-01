@@ -1,16 +1,17 @@
 /**
- * 应用服务编排
- * 
- * 协调各个核心组件，实现算子平台的核心功能
+ * Application service orchestration
+ *
+ * Coordinates core components for the operator platform.
  */
 
-const path = require('path');
-// const swaggerJsDoc = require('swagger-jsdoc'); // 不再需要，直接使用自定义文档生成器
+// const swaggerJsDoc = require('swagger-jsdoc'); // unused; custom docs generator instead
 const OperatorRegistry = require('../core/registry');
 const OperatorDiscovery = require('../core/discovery');
 const RouterBuilder = require('../core/router');
 const DocumentGenerator = require('./docs-generator');
 const logger = require('../utils/logger');
+const { operatorMethods, chatPluginByMethodMap } = require('../utils/operator-definition');
+const { playgroundNeedsGeniSpaceKey } = require('../utils/operator-auth');
 
 class ApplicationService {
   constructor(config = {}) {
@@ -23,53 +24,50 @@ class ApplicationService {
   }
 
   /**
-   * 初始化应用服务
-   * @param {string} operatorsDir - 算子目录
+   * Initialize application service
+   * @param {string} operatorsDir
    */
   async initialize(operatorsDir) {
     try {
-      logger.info('开始初始化应用服务...');
-      
-      // 1. 发现和加载算子
+      logger.info('Initializing application service...');
+
       await this._loadOperators(operatorsDir);
-      
-      // 2. 生成API文档
+
+      // Merge registry into one OpenAPI document for /docs and /docs.json
       this._generateDocs();
-      
+
       this.initialized = true;
-      logger.info('应用服务初始化完成');
-      
+      logger.info('Application service initialized');
+
     } catch (error) {
-      logger.error('应用服务初始化失败', { error: error.message });
+      logger.error('Application service initialization failed', { error: error.message });
       throw error;
     }
   }
 
   /**
-   * 应用到Express应用
-   * @param {object} app - Express应用实例
+   * Mount on Express app
+   * @param {object} app
    */
   applyTo(app) {
     if (!this.initialized) {
-      throw new Error('应用服务未初始化，请先调用 initialize()');
+      throw new Error('Application service not initialized; call initialize() first');
     }
 
-    // 构建路由
+    // Each operator Express router under /api/{category}/{operatorName}
     this.router.applyRoutes(app, this.registry);
     return this;
   }
 
   /**
-   * 获取Swagger文档
-   * @returns {object} Swagger规范
+   * @returns {object} OpenAPI / Swagger spec
    */
   getSwaggerSpec() {
     return this.swaggerSpec;
   }
 
   /**
-   * 获取统计信息
-   * @returns {object} 统计数据
+   * @returns {object} stats
    */
   getStats() {
     const registryStats = this.registry.getStats();
@@ -83,13 +81,17 @@ class ApplicationService {
   }
 
   /**
-   * 获取算子列表
-   * @returns {Array} 算子列表
+   * @returns {Array} operators
    */
   getOperators() {
     return this.registry.getAll().map(operatorData => {
       const { config, metadata } = operatorData;
-      const endpoints = config.openapi?.paths ? Object.keys(config.openapi.paths) : [];
+      const pathSet = new Set(
+        operatorMethods(config).map((m) =>
+          m.path && String(m.path).startsWith('/') ? m.path : `/${m.path || ''}`
+        )
+      );
+      const endpoints = [...pathSet];
       
       return {
         id: metadata.id,
@@ -106,19 +108,17 @@ class ApplicationService {
   }
 
   /**
-   * 按分类获取算子
-   * @param {string} category - 分类名称
-   * @returns {Array} 算子列表
+   * @param {string} category
+   * @returns {Array}
    */
   getOperatorsByCategory(category) {
     return this.getOperators().filter(op => op.category === category);
   }
 
   /**
-   * 获取单个算子的完整定义
-   * @param {string} operatorId - 算子ID
-   * @param {object} req - 请求对象（用于构建完整URL）
-   * @returns {object|null} 算子定义
+   * @param {string} operatorId
+   * @param {object|null} req for base URL
+   * @returns {object|null}
    */
   getOperatorDefinition(operatorId, req = null) {
     const operatorData = this.registry.get(operatorId);
@@ -127,16 +127,76 @@ class ApplicationService {
     }
 
     const { config, metadata } = operatorData;
-    
-    // 构建基础URL（如果提供了请求对象）
+    const fileMetadata =
+      config.metadata && typeof config.metadata === 'object' ? { ...config.metadata } : {};
+
+    // Base URL from request; behind gateway without X-Forwarded-Proto, req.secure may be wrong
     let baseUrl = '';
     if (req) {
       const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
       const host = req.headers['x-forwarded-host'] || req.headers.host || `${process.env.HOST || 'localhost'}:${process.env.PORT || 8080}`;
       baseUrl = `${protocol}://${host}`;
     }
-    
-    // 构建GeniSpace算子定义格式
+
+    const explicitGenispaceApiBase = process.env.GENISPACE_API_BASE_URL && String(process.env.GENISPACE_API_BASE_URL).trim();
+    const serverUrlDefault = explicitGenispaceApiBase
+      ? explicitGenispaceApiBase.replace(/\/$/, '')
+      : baseUrl;
+
+    const defaultSystemConfiguration = {
+      schema: {
+        type: 'api',
+        properties: {
+          serverUrl: {
+            type: 'string',
+            title: 'Server URL',
+            required: true,
+            description: 'Base URL of the API server',
+            default: serverUrlDefault
+          },
+          timeout: {
+            type: 'number',
+            title: 'Global timeout',
+            default: 30000,
+            description: 'Request timeout in milliseconds'
+          },
+          headers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                key: { type: 'string' },
+                value: { type: 'string' }
+              }
+            },
+            title: 'Global headers',
+            description: 'HTTP headers applied to every request'
+          },
+          retryPolicy: {
+            type: 'object',
+            title: 'Global retry policy',
+            properties: {
+              intervalMs: {
+                type: 'number',
+                title: 'Retry interval (ms)',
+                default: 1000
+              },
+              maxAttempts: {
+                type: 'number',
+                title: 'Max retry attempts',
+                default: 3
+              }
+            }
+          }
+        }
+      }
+    };
+    const customUserConfiguration =
+      config.configuration && typeof config.configuration === 'object'
+        ? config.configuration
+        : { schema: { type: 'object', properties: {} }, values: {} };
+
+    // GeniSpace operator definition shape
     return {
       type: 'genispace-operator',
       version: '1.0.0',
@@ -149,23 +209,127 @@ class ApplicationService {
         tags: config.info.tags || [],
         author: config.info.author || 'genispace.com Dev Team',
         
-        // 基础配置
+        // User-level config from operator file root `configuration`
+        configuration: {
+          schema: customUserConfiguration.schema || { type: 'object', properties: {} },
+          values: customUserConfiguration.values || {}
+        },
+        // System-level API runtime config (base URL, headers, timeout)
+        systemConfiguration: defaultSystemConfiguration,
+
+        // Methods from root `methods`; merge chatPluginByMethod → chatPluginConfig
+        methods: this._mergeChatPluginConfigs(
+          this._buildMethodsFromDefinition(config),
+          config,
+          this._resolvePublicBaseUrl(baseUrl)
+        ),
+        
+        // Metadata: export audit fields first, then merge file metadata (e.g. locales.zh)
+        metadata: {
+          source: 'genispace-internal-operators',
+          exportedAt: new Date().toISOString(),
+          exportedBy: 'GeniSpace Custom Operators API',
+          originalOperatorId: operatorId,
+          registeredAt: metadata.registeredAt,
+          ...fileMetadata
+        }
+      }
+    };
+  }
+
+  /**
+   * Playground: registered operators with inputSchema, endpoint, chatPluginConfig
+   * @param {object|null} req for public host
+   * @returns {Array<object>}
+   */
+  getPlaygroundRegistry(req = null) {
+    if (!this.initialized) {
+      throw new Error('Application service not initialized; call initialize() first');
+    }
+
+    return this.registry.getAll()
+      .map(({ config, metadata }) => {
+        const def = this.getOperatorDefinition(metadata.id, req);
+        if (!def?.operator) {
+          return null;
+        }
+        const op = def.operator;
+        const locales = config.metadata?.locales;
+        const needsGeniSpaceKey = playgroundNeedsGeniSpaceKey(config);
+        return {
+          id: metadata.id,
+          identifier: op.identifier,
+          name: op.name,
+          category: op.category,
+          description: op.description,
+          metadata: locales ? { locales } : undefined,
+          methods: (op.methods || []).map((m) => ({
+            identifier: m.identifier,
+            name: m.name,
+            description: m.description,
+            inputSchema: m.inputSchema,
+            endpoint: m.configuration?.values?.endpoint,
+            httpMethod: m.configuration?.values?.method,
+            chatPluginConfig: m.chatPluginConfig || null,
+            needsGeniSpaceKey
+          }))
+        };
+      })
+      .filter(Boolean);
+  }
+
+  /**
+   * Public origin for pluginUrl (no trailing slash)
+   * @param {string} reqBaseUrl
+   * @returns {string}
+   */
+  _resolvePublicBaseUrl(reqBaseUrl) {
+    const explicit = process.env.PUBLIC_BASE_URL || this.config.publicBaseUrl;
+    const trim = (v) => (v && String(v).trim()) || '';
+    const raw = trim(explicit) || trim(reqBaseUrl)
+      || (typeof this.config.getServiceBaseUrl === 'function' ? this.config.getServiceBaseUrl() : '');
+    return raw.replace(/\/$/, '');
+  }
+
+  /**
+   * Build platform methods from operator methods[] (root or legacy genispace.methods)
+   * @param {object} config
+   * @returns {Array<object>}
+   */
+  _buildMethodsFromDefinition(config) {
+    const apiPrefix = this.config.apiPrefix || '/api';
+    const info = config.info || {};
+    const operatorName = info.name;
+    const category = info.category;
+    const raw = operatorMethods(config);
+
+    return raw.map((m, index) => {
+      const path = m.path && String(m.path).startsWith('/') ? m.path : `/${m.path || ''}`;
+      const httpMethod = String(m.httpMethod || 'POST').toUpperCase();
+      const endpoint = `${apiPrefix}/${category}/${operatorName}${path}`;
+      const inputSchema =
+        m.inputSchema !== undefined ? m.inputSchema : { type: 'object', properties: {} };
+      const outputSchema =
+        m.outputSchema !== undefined ? m.outputSchema : { type: 'object', properties: {} };
+
+      return {
+        name: m.name,
+        identifier: m.identifier,
+        description: m.description != null ? m.description : '',
+        inputSchema,
+        outputSchema,
         configuration: {
           schema: {
-            type: 'api',
+            type: 'object',
             properties: {
-              serverUrl: {
+              method: {
                 type: 'string',
-                title: '服务器地址',
-                required: true,
-                description: 'API 服务器的基础地址',
-                default: baseUrl // 使用动态生成的基础URL作为默认值
+                enum: [httpMethod],
+                default: httpMethod
               },
-              timeout: {
-                type: 'number',
-                title: '全局超时时间',
-                default: 30000,
-                description: '请求超时时间（毫秒）'
+              endpoint: {
+                type: 'string',
+                default: endpoint
               },
               headers: {
                 type: 'array',
@@ -176,228 +340,90 @@ class ApplicationService {
                     value: { type: 'string' }
                   }
                 },
-                title: '全局请求头',
-                description: '应用于所有请求的全局请求头'
+                title: 'Headers',
+                default: []
               },
-              retryPolicy: {
-                type: 'object',
-                title: '全局重试策略',
-                properties: {
-                  intervalMs: {
-                    type: 'number',
-                    title: '重试间隔',
-                    default: 1000
-                  },
-                  maxAttempts: {
-                    type: 'number',
-                    title: '最大重试次数',
-                    default: 3
-                  }
-                }
-              }
-            }
-          }
-        },
-
-        // 方法定义
-        methods: this._convertPathsToMethods(config.openapi.paths, config.info.name, config.info.category, baseUrl, config.openapi),
-        
-        // 元数据
-        metadata: {
-          source: 'genispace-custom-operators',
-          exportedAt: new Date().toISOString(),
-          exportedBy: 'GeniSpace Custom Operators API',
-          originalOperatorId: operatorId,
-          registeredAt: metadata.registeredAt
-        }
-      }
-    };
-  }
-
-
-  /**
-   * 将OpenAPI paths转换为GeniSpace方法格式
-   * @param {object} paths - OpenAPI paths
-   * @param {string} operatorName - 算子名称
-   * @param {string} category - 算子分类
-   * @param {string} baseUrl - 基础URL
-   * @param {object} fullOpenApiDoc - 完整的OpenAPI文档，用于解析$ref
-   * @returns {Array} 方法列表
-   */
-  _convertPathsToMethods(paths, operatorName, category, baseUrl = '', fullOpenApiDoc = null) {
-    const methods = [];
-    
-    Object.entries(paths).forEach(([path, pathItem]) => {
-      Object.entries(pathItem).forEach(([httpMethod, operation]) => {
-        const methodName = operation.operationId || 
-          `${httpMethod}${path.replace(/[^a-zA-Z0-9]/g, '')}`;
-        
-        methods.push({
-          name: operation.summary || methodName,
-          identifier: methodName.toLowerCase(),
-          description: operation.description || '',
-          
-          // 输入Schema（从requestBody提取）
-          inputSchema: this._extractInputSchema(operation.requestBody),
-          
-          // 输出Schema（从responses提取）
-          outputSchema: this._extractOutputSchema(operation.responses, fullOpenApiDoc),
-          
-          // 方法配置
-          configuration: {
-            schema: {
-              type: 'object',
-              properties: {
-                method: {
-                  type: 'string',
-                  enum: [httpMethod.toUpperCase()],
-                  default: httpMethod.toUpperCase()
-                },
-                endpoint: {
-                  type: 'string',
-                  default: `${this.config.apiPrefix || '/api'}/${category}/${operatorName}${path}`
-                },
-                headers: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      key: { type: 'string' },
-                      value: { type: 'string' }
-                    }
-                  },
-                  title: '请求头',
-                  default: []
-                },
-                caching: {
-                  type: 'object',
-                  properties: {
-                    enabled: { type: 'boolean', default: false },
-                    ttlSeconds: { type: 'number', default: 3600 }
-                  }
-                }
-              }
-            },
-            values: {
-              method: httpMethod.toUpperCase(),
-              endpoint: `${this.config.apiPrefix || '/api'}/${category}/${operatorName}${path}`,
-              headers: [],
               caching: {
-                enabled: false,
-                ttlSeconds: 3600
+                type: 'object',
+                properties: {
+                  enabled: { type: 'boolean', default: false },
+                  ttlSeconds: { type: 'number', default: 3600 }
+                }
               }
             }
           },
-          
-          isDefault: methods.length === 0, // 第一个方法设为默认
-          order: methods.length,
-          status: 'ACTIVE'
-        });
-      });
-    });
-    
-    return methods;
-  }
-
-  /**
-   * 从requestBody提取输入Schema
-   * @param {object} requestBody - OpenAPI requestBody
-   * @returns {object} 输入Schema
-   */
-  _extractInputSchema(requestBody) {
-    if (!requestBody) {
-      return { type: 'object', properties: {} };
-    }
-
-    const jsonContent = requestBody.content?.['application/json'];
-    if (jsonContent?.schema) {
-      return jsonContent.schema;
-    }
-
-    return { type: 'object', properties: {} };
-  }
-
-  /**
-   * 从responses提取输出Schema
-   * @param {object} responses - OpenAPI responses
-   * @param {object} fullOpenApiDoc - 完整的OpenAPI文档，用于解析$ref
-   * @returns {object} 输出Schema
-   */
-  _extractOutputSchema(responses, fullOpenApiDoc = null) {
-    // 优先查找200响应
-    const successResponse = responses['200'] || responses['201'] || responses['default'];
-    
-    if (!successResponse) {
-      return { type: 'object', properties: {} };
-    }
-
-    const jsonContent = successResponse.content?.['application/json'];
-    if (jsonContent?.schema) {
-      // 如果包含$ref，尝试解析
-      if (jsonContent.schema.$ref && fullOpenApiDoc) {
-        return this._resolveRef(jsonContent.schema.$ref, fullOpenApiDoc);
-      }
-      return jsonContent.schema;
-    }
-
-    return { type: 'object', properties: {} };
-  }
-
-  /**
-   * 解析OpenAPI中的$ref引用
-   * @param {string} ref - $ref字符串
-   * @param {object} openApiDoc - 完整的OpenAPI文档
-   * @returns {object} 解析后的schema
-   */
-  _resolveRef(ref, openApiDoc) {
-    try {
-      // 解析类似 "#/paths/~1generate-from-html/post/responses/200/content/application~1json/schema" 的引用
-      if (ref.startsWith('#/')) {
-        const pathParts = ref.substring(2).split('/');
-        let current = openApiDoc;
-        
-        for (const part of pathParts) {
-          // 处理URL编码的字符，如 ~1 代表 /
-          const decodedPart = part.replace(/~1/g, '/').replace(/~0/g, '~');
-          
-          if (current && typeof current === 'object' && decodedPart in current) {
-            current = current[decodedPart];
-          } else {
-            console.warn(`无法解析$ref路径: ${ref}`);
-            return { type: 'object', properties: {} };
+          values: {
+            method: httpMethod,
+            endpoint,
+            headers: [],
+            caching: {
+              enabled: false,
+              ttlSeconds: 3600
+            }
           }
-        }
-        
-        return current || { type: 'object', properties: {} };
-      }
-      
-      console.warn(`不支持的$ref格式: ${ref}`);
-      return { type: 'object', properties: {} };
-    } catch (error) {
-      console.error(`解析$ref失败: ${ref}`, error);
-      return { type: 'object', properties: {} };
-    }
+        },
+        isDefault: index === 0,
+        order: index,
+        status: 'ACTIVE'
+      };
+    });
   }
 
   /**
-   * 重新加载算子
-   * @param {string} operatorsDir - 算子目录
+   * Merge chatPluginByMethod into exported method chatPluginConfig
+   * @param {Array} methods from _buildMethodsFromDefinition
+   * @param {object} operatorConfig module.exports
+   * @param {string} publicBase public service root URL
+   * @returns {Array}
+   */
+  _mergeChatPluginConfigs(methods, operatorConfig, publicBase) {
+    const byMethod = chatPluginByMethodMap(operatorConfig);
+    if (!methods || !Array.isArray(methods)) {
+      return [];
+    }
+
+    return methods.map((m) => {
+      const spec = byMethod[m.identifier];
+      if (!spec || spec.enabled !== true) {
+        return m;
+      }
+
+      let pluginUrl = spec.pluginUrl;
+      if (!pluginUrl && spec.pluginPath) {
+        const p = String(spec.pluginPath).startsWith('/') ? spec.pluginPath : `/${spec.pluginPath}`;
+        pluginUrl = publicBase ? `${publicBase}${p}` : p;
+      }
+      if (pluginUrl && !String(pluginUrl).endsWith('/')) {
+        pluginUrl = `${pluginUrl}/`;
+      }
+
+      const extra = spec.extra && typeof spec.extra === 'object' ? spec.extra : {};
+      const chatPluginConfig = {
+        enabled: true,
+        pluginId: spec.pluginId,
+        pluginUrl,
+        ...extra
+      };
+
+      return { ...m, chatPluginConfig };
+    });
+  }
+
+  /**
+   * @param {string} operatorsDir
    */
   async reload(operatorsDir) {
-    logger.info('开始重新加载算子...');
-    
-    // 清空状态
+    logger.info('Reloading operators...');
+
     this.registry.clear();
     this.discovery.reset();
     
-    // 重新初始化
     await this.initialize(operatorsDir);
-    
-    logger.info('算子重新加载完成');
+
+    logger.info('Operators reloaded');
   }
 
   /**
-   * 加载算子
    * @private
    */
   async _loadOperators(operatorsDir) {
@@ -416,28 +442,26 @@ class ApplicationService {
         }
       } catch (error) {
         errorCount++;
-        logger.error(`算子注册失败: ${operatorData?.config?.info?.name || 'unknown'}`, { 
-          error: error.message 
+        logger.error(`Operator registration failed: ${operatorData?.config?.info?.name || 'unknown'}`, {
+          error: error.message
         });
       }
     }
     
-    logger.info(`算子加载完成: 成功 ${successCount} 个，失败 ${errorCount} 个`);
-    
+    logger.info(`Operators loaded: ${successCount} succeeded, ${errorCount} failed`);
+
     if (successCount === 0) {
-      logger.warn('没有成功加载任何算子');
+      logger.warn('No operators loaded successfully');
     }
   }
 
   /**
-   * 生成API文档
    * @private
    */
   _generateDocs() {
-    // 直接使用文档生成器生成完整的OpenAPI文档
     this.swaggerSpec = this.docsGenerator.generate(this.registry);
-    
-    logger.debug('API文档生成完成');
+
+    logger.debug('OpenAPI spec generated');
   }
 }
 

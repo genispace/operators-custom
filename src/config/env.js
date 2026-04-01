@@ -1,78 +1,90 @@
 /**
- * 环境配置管理
- * 
- * 集中管理所有环境变量和配置项
+ * Environment and runtime configuration (central place for env-derived settings).
  */
 
 const path = require('path');
 
 const config = {
-  // 服务器配置
+  // Server
   port: parseInt(process.env.PORT) || 8080,
   host: process.env.HOST || '0.0.0.0',
   
-  // 环境配置
+  // Environment
   env: process.env.NODE_ENV || 'development',
   isDevelopment: (process.env.NODE_ENV || 'development') === 'development',
   isProduction: process.env.NODE_ENV === 'production',
   
-  // API配置
+  // API
   apiPrefix: process.env.API_PREFIX || '/api',
   
-  // CORS配置
-  corsOrigin: process.env.CORS_ORIGIN ? 
-    process.env.CORS_ORIGIN.split(',').map(origin => origin.trim()) : 
-    '*',
+  // CORS: comma-separated allowlist; if the value is exactly "*", keep the string "*"
+  // (splitting "*," would turn production CORS_ORIGIN=* into a broken list)
+  corsOrigin: (() => {
+    const raw = process.env.CORS_ORIGIN;
+    if (!raw || !String(raw).trim()) return '*';
+    const parts = String(raw)
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean);
+    if (parts.length === 1 && parts[0] === '*') return '*';
+    return parts;
+  })(),
   
-  // 请求配置
+  // Request limits
   maxRequestSize: process.env.MAX_REQUEST_SIZE || '10mb',
   requestTimeout: parseInt(process.env.REQUEST_TIMEOUT) || 30000,
-  
-  // 速率限制
+
+  // Rate limiting (express-rate-limit)
   rateLimit: {
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) || 15 * 60 * 1000, // 15分钟
-    max: parseInt(process.env.RATE_LIMIT_MAX) || 100, // 最大请求数
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW) || 15 * 60 * 1000, // default 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX) || 100, // max requests per window per IP
     skipSuccessfulRequests: process.env.RATE_LIMIT_SKIP_SUCCESS === 'true'
   },
-  
-  // 日志配置
+
+  // Logging
   log: {
     level: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'debug'),
-    console: process.env.LOG_CONSOLE !== 'false' // 默认启用控制台输出
+    console: process.env.LOG_CONSOLE !== 'false' // default: log to console
   },
-  
-  // 算子配置
+
+  // Operator discovery and caching
   operators: {
     directory: process.env.OPERATORS_DIR || path.join(process.cwd(), 'operators'),
     cacheEnabled: process.env.OPERATORS_CACHE_ENABLED !== 'false',
-    cacheTTL: parseInt(process.env.OPERATORS_CACHE_TTL) || 3600, // 1小时
+    cacheTTL: parseInt(process.env.OPERATORS_CACHE_TTL) || 3600, // seconds; default 1 hour
     autoReload: process.env.OPERATORS_AUTO_RELOAD === 'true'
   },
   
-  // 监控配置
+  // Monitoring
   monitoring: {
     enabled: process.env.MONITORING_ENABLED === 'true',
     metricsPath: process.env.METRICS_PATH || '/metrics',
     healthPath: process.env.HEALTH_PATH || '/health'
   },
   
-  // 安全配置
+  // Security
   security: {
     enableCors: process.env.SECURITY_CORS !== 'false',
     enableRateLimit: process.env.SECURITY_RATE_LIMIT !== 'false',
     trustProxy: process.env.TRUST_PROXY === 'true'
   },
   
-  // GeniSpace API KEY 认证配置
+  /** Public service root for chat remote plugin URLs; falls back to getServiceBaseUrl() */
+  publicBaseUrl: process.env.PUBLIC_BASE_URL || null,
+
+  /** Ingress path prefix to strip (e.g. /operators/internal) so /api, /static, /health match */
+  ingressStripPrefix: (process.env.INGRESS_STRIP_PREFIX && process.env.INGRESS_STRIP_PREFIX.trim()) || null,
+
+  // GeniSpace API key auth
   genispace: {
     auth: {
       baseUrl: process.env.GENISPACE_API_BASE_URL || 'https://api.genispace.com',
       timeout: parseInt(process.env.GENISPACE_AUTH_TIMEOUT) || 10000,
-      cacheTTL: parseInt(process.env.GENISPACE_AUTH_CACHE_TTL) || 300 // 5分钟缓存
+      cacheTTL: parseInt(process.env.GENISPACE_AUTH_CACHE_TTL) || 300 // seconds; default 5 minutes
     }
   },
   
-  // 缓存配置（如果需要Redis等）
+  // Optional cache (e.g. Redis)
   cache: {
     enabled: process.env.CACHE_ENABLED === 'true',
     redis: {
@@ -82,25 +94,22 @@ const config = {
       db: parseInt(process.env.REDIS_DB) || 0
     }
   },
-  
-  // 外部服务配置
-  services: {
-    // 可以在这里配置外部API、数据库等服务
-  }
+
+  // Reserved for external integrations (databases, third-party APIs, etc.)
+  services: {}
 };
 
 /**
- * 获取服务的基础URL
- * 优先级：OPERATORS_BASE_URL > PROTOCOL://HOST:PORT
- * @returns {string} 服务基础URL（不包含路径）
+ * Service base URL (no path).
+ * Prefers OPERATORS_BASE_URL when set (often differs from bind address in containers).
+ * Otherwise builds from PROTOCOL, HOST, PORT.
  */
 function getServiceBaseUrl() {
-  // 优先使用 OPERATORS_BASE_URL，因为服务启动配置往往跟最终配置的URL不一致
   if (process.env.OPERATORS_BASE_URL) {
     return process.env.OPERATORS_BASE_URL;
   }
-  
-  // 降级使用服务器启动配置
+
+  // Fallback: listen host/port may be 0.0.0.0 — callers that need a public URL should set OPERATORS_BASE_URL
   const protocol = process.env.PROTOCOL || 'http';
   const host = process.env.HOST || 'localhost';
   const port = process.env.PORT || 8080;
@@ -108,20 +117,82 @@ function getServiceBaseUrl() {
 }
 
 /**
- * 获取完整的API基础URL（包含API前缀）
- * @returns {string} API基础URL（包含API前缀，不包含具体路径）
+ * Replace 0.0.0.0 / [::] hostnames with `localhost` so links work in a desktop browser.
+ * @param {string} url
+ * @returns {string}
  */
-function getApiBaseUrl() {
-  const baseUrl = getServiceBaseUrl();
-  const apiPrefix = config.apiPrefix;
-  return `${baseUrl}${apiPrefix}`;
+function normalizeServiceUrlForBrowser(url) {
+  if (!url || typeof url !== 'string') return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname === '0.0.0.0') u.hostname = 'localhost';
+    if (u.hostname === '[::]' || u.hostname === '::') u.hostname = 'localhost';
+    const origin =
+      u.port && String(u.port) !== ''
+        ? `${u.protocol}//${u.hostname}:${u.port}`
+        : `${u.protocol}//${u.hostname}`;
+    const path = u.pathname === '/' ? '' : u.pathname;
+    return `${origin}${path}${u.search}${u.hash}`;
+  } catch {
+    return url;
+  }
 }
 
-// 将方法添加到config对象
+/**
+ * Same source as {@link getServiceBaseUrl}, normalized for browser-friendly hostnames.
+ * @returns {string}
+ */
+function getBrowserBaseUrl() {
+  return normalizeServiceUrlForBrowser(getServiceBaseUrl());
+}
+
+/**
+ * Normalize a path prefix: ensure leading slash, strip trailing slash.
+ * @param {string} p
+ * @returns {string}
+ */
+function normalizePathPrefixForCompare(p) {
+  const s = (p && String(p).trim()) || '';
+  if (!s) return '';
+  const withSlash = s.startsWith('/') ? s : `/${s}`;
+  return withSlash.replace(/\/$/, '') || '';
+}
+
+/**
+ * Public URL root for routes like `/docs` and `/operators` (includes `apiPrefix` when needed).
+ * If OPERATORS_BASE_URL already ends with the same path as `apiPrefix`, it is not appended twice
+ * (prevents `/operators/internal/operators/internal/docs`).
+ * @returns {string}
+ */
+function getPublicRouteBaseUrl() {
+  const apiPx = normalizePathPrefixForCompare(config.apiPrefix || '/api');
+  const serviceUrl = (getBrowserBaseUrl() || '').replace(/\/$/, '');
+  if (!serviceUrl) {
+    return apiPx;
+  }
+  try {
+    const u = new URL(serviceUrl);
+    const pathname = normalizePathPrefixForCompare(u.pathname || '');
+    if (pathname === apiPx) {
+      return serviceUrl;
+    }
+  } catch {
+    return `${serviceUrl}${apiPx}`;
+  }
+  return `${serviceUrl}${apiPx}`;
+}
+
+/** @returns {string} API base URL including `apiPrefix` */
+function getApiBaseUrl() {
+  return getPublicRouteBaseUrl();
+}
+
+// Expose URL helpers on the exported config object
 config.getServiceBaseUrl = getServiceBaseUrl;
+config.getBrowserBaseUrl = getBrowserBaseUrl;
+config.getPublicRouteBaseUrl = getPublicRouteBaseUrl;
 config.getApiBaseUrl = getApiBaseUrl;
 
-// 验证必要的配置
 function validateConfig() {
   const required = [];
   
@@ -130,11 +201,11 @@ function validateConfig() {
   }
   
   if (required.length > 0) {
-    throw new Error(`配置验证失败:\n${required.join('\n')}`);
+    throw new Error(`Configuration validation failed:\n${required.join('\n')}`);
   }
 }
 
-// 导出配置前进行验证
+// Fail fast on invalid required settings
 try {
   validateConfig();
 } catch (error) {

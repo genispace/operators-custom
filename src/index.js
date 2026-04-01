@@ -1,9 +1,9 @@
 /**
  * GeniSpace Custom Operators API Server
- * 
- * GeniSpace AI 平台的轻量级自定义算子组件库
- * 重构后的清晰分层架构
- * 
+ *
+ * Lightweight custom operator component library for the GeniSpace AI platform.
+ * Clear layered architecture after refactor.
+ *
  * @copyright © 2025 genispace.com Dev Team
  * @license MIT
  */
@@ -11,56 +11,95 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const path = require('path');
+const { execSync } = require('child_process');
 
-// 加载环境变量
+// Load `.env` into process.env before reading config
 require('dotenv').config();
 
-// 导入配置和服务
 const config = require('./config/env');
 const ApplicationService = require('./services/app-service');
 const { setupMiddlewares } = require('./middleware');
 const { setupRoutes } = require('./routes');
 const logger = require('./utils/logger');
 
-// 创建Express应用
 const app = express();
 
-// 创建应用服务
+// Chat plugin assets: mount after setupMiddlewares so CORS applies (dev playground fetches manifest/JS cross-origin).
+const publicPluginsPath = path.join(__dirname, '../public/plugins');
+
+// Coordinates discovery, registry, OpenAPI merge, and route application
 const appService = new ApplicationService(config);
 
-/**
- * 应用启动函数
- */
+/** Strip ingress path prefix (e.g. /operators/internal) so /api and /health match internally. */
+function mountIngressStripPrefix(expressApp, rawPrefix) {
+  const trimmed = rawPrefix && String(rawPrefix).trim();
+  if (!trimmed) return;
+  const prefix = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+  expressApp.use((req, res, next) => {
+    const pathOnly = req.path;
+    if (pathOnly === prefix || pathOnly.startsWith(`${prefix}/`)) {
+      const rest = pathOnly.slice(prefix.length) || '/';
+      const q = req.url.indexOf('?');
+      const qs = q >= 0 ? req.url.slice(q) : '';
+      req.url = rest + qs;
+    }
+    next();
+  });
+  logger.info(`Ingress strip prefix: ${prefix}`);
+}
+
 async function startApp() {
   try {
-    logger.info('🚀 启动 GeniSpace Custom Operators API...');
-    
-    // 1. 设置中间件
+    logger.info('🚀 Starting GeniSpace Custom Operators API...');
+
+    mountIngressStripPrefix(app, config.ingressStripPrefix);
+
+    if (config.security.trustProxy) {
+      app.set('trust proxy', true);
+    }
+
+    // CORS, JSON/body limits, logging, auth, rate limiting, etc.
     setupMiddlewares(app, config);
-    
-    // 2. 初始化应用服务
+
+    // Dev: public/plugins is gitignored; nodemon restarts skip npm pre scripts — sync operators/**/plugin on boot.
+    if (config.isDevelopment) {
+      const repoRoot = path.join(__dirname, '..');
+      try {
+        execSync('node scripts/build-plugins.js', { cwd: repoRoot, stdio: 'pipe' });
+        logger.debug('Dev: synced Chat plugins -> public/plugins');
+      } catch (err) {
+        const detail = err.stderr ? String(err.stderr) : err.message;
+        logger.warn('Dev: build-plugins failed; manifests under /static/plugins may 404', { error: detail });
+      }
+    }
+
+    // Static hosting for built plugin bundles (also under apiPrefix when gateway forwards full path)
+    app.use('/static/plugins', express.static(publicPluginsPath, { fallthrough: true }));
+    const apiPx = (config.apiPrefix && String(config.apiPrefix).replace(/\/$/, '')) || '';
+    if (apiPx) {
+      app.use(`${apiPx}/static/plugins`, express.static(publicPluginsPath, { fallthrough: true }));
+    }
+
     const operatorsDir = path.join(__dirname, '../operators');
     await appService.initialize(operatorsDir);
-    
-    // 3. 设置基础路由
+
+    // System routes: home, health, operator listing, etc.
     setupRoutes(app, appService, config);
-    
-    // 4. 应用算子路由
+
+    // Per-operator Express routers under /api/{category}/{operator}
     appService.applyTo(app);
-    
-    // 5. 设置API文档
+
     setupApiDocs(app, appService, config);
-    
-    // 6. 设置错误处理（必须在所有路由之后）
+
     const { errorHandler, notFoundHandler } = require('./middleware/error');
+    // Must be registered after all routes
     app.use(notFoundHandler);
     app.use(errorHandler);
-    
-    // 7. 启动服务器
+
     const server = app.listen(config.port, config.host, () => {
       const stats = appService.getStats();
-      
-      logger.info('✅ 服务器启动成功', {
+
+      logger.info('✅ Server started', {
         port: config.port,
         host: config.host,
         environment: config.env,
@@ -68,31 +107,29 @@ async function startApp() {
         operators: stats.totalOperators,
         endpoints: stats.totalEndpoints
       });
-      
-      logger.info(`📚 API 文档: http://${config.host}:${config.port}${config.apiPrefix}/docs`);
-      logger.info(`🔗 OpenAPI Schema: http://${config.host}:${config.port}${config.apiPrefix}/docs.json`);
-      logger.info(`🏥 健康检查: http://${config.host}:${config.port}/health`);
+
+      const publicRouteBase = config.getPublicRouteBaseUrl();
+      logger.info(`📚 API docs: ${publicRouteBase}/docs`);
+      logger.info(`🔗 OpenAPI schema: ${publicRouteBase}/docs.json`);
+      const probeHost = config.host === '0.0.0.0' ? 'localhost' : config.host;
+      logger.info(`🏥 Health: http://${probeHost}:${config.port}/health`);
     });
 
-    // 优雅关闭处理
+    // SIGTERM/SIGINT and uncaught exception handlers
     setupGracefulShutdown(server);
 
     return { app, server, appService };
-    
   } catch (error) {
-    logger.error('❌ 服务器启动失败', { error: error.stack });
+    logger.error('❌ Server failed to start', { error: error.stack });
     process.exit(1);
   }
 }
 
-/**
- * 设置API文档
- */
 function setupApiDocs(app, appService, config) {
   const swaggerSpec = appService.getSwaggerSpec();
   const apiPrefix = config.apiPrefix || '/api';
-  
-  // Swagger UI
+
+  // Interactive OpenAPI browser
   app.use(`${apiPrefix}/docs`, swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: 'GeniSpace Custom Operators API',
@@ -104,7 +141,7 @@ function setupApiDocs(app, appService, config) {
     }
   }));
 
-  // Swagger JSON端点
+  // Raw OpenAPI document for codegen and external tools
   app.get(`${apiPrefix}/docs.json`, (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -114,14 +151,12 @@ function setupApiDocs(app, appService, config) {
   });
 }
 
-/**
- * 设置优雅关闭
- */
+/** Graceful HTTP shutdown and fatal process error logging. */
 function setupGracefulShutdown(server) {
   const gracefulShutdown = (signal) => {
-    logger.info(`收到 ${signal} 信号，开始优雅关闭...`);
+    logger.info(`Received ${signal}, shutting down gracefully...`);
     server.close(() => {
-      logger.info('HTTP 服务器已关闭');
+      logger.info('HTTP server closed');
       process.exit(0);
     });
   };
@@ -129,22 +164,21 @@ function setupGracefulShutdown(server) {
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-  // 异常处理
   process.on('uncaughtException', (error) => {
-    logger.error('未捕获的异常', { error: error.stack });
+    logger.error('Uncaught exception', { error: error.stack });
     process.exit(1);
   });
 
   process.on('unhandledRejection', (reason, promise) => {
-    logger.error('未处理的Promise拒绝', { 
-      reason: reason,
-      promise: promise
+    logger.error('Unhandled promise rejection', {
+      reason,
+      promise
     });
     process.exit(1);
   });
 }
 
-// 如果直接运行此文件，启动服务器
+// When executed directly (`node src/index.js`), boot the server
 if (require.main === module) {
   startApp();
 }

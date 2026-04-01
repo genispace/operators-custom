@@ -1,0 +1,42 @@
+{
+  "nav": {
+    "brand": "GeniSpace",
+    "subtitle": "operators dev playground",
+    "selectOperator": "Select Operator ...",
+    "selectMethod": "Select Method ..."
+  },
+  "change_language": "Change language",
+  "language": {
+    "zh_short": "中",
+    "en_short": "EN"
+  },
+  "panel": {
+    "requestTitle": "Request body",
+    "requestDesc": "Form generated from inputSchema; calls operator API",
+    "outputTitle": "Output preview",
+    "outputDesc": "JSON or remote chat plugin (same load path as production)",
+    "outputEmpty": "Run to see results; if chatPluginConfig is enabled the remote plugin loads.",
+    "noChatPluginHint": "This method has no chatPluginConfig (default operator view contract)."
+  },
+  "form": {
+    "selectOperatorMethod": "Select an operator and method above",
+    "execute": "Run",
+    "executing": "Running…"
+  },
+  "execute": {
+    "missingEndpoint": "Missing endpoint or HTTP method",
+    "genispaceKeyRequired": "This method requires a GeniSpace API key. Enter it below."
+  },
+  "genispace": {
+    "keyLabel": "GeniSpace API key",
+    "keyHint": "Stored only in this browser (localStorage). Do not commit keys to the repo.",
+    "keyPlaceholder": "Paste system API key"
+  },
+  "plugin": {
+    "loading": "Loading remote plugin…",
+    "noDefaultExport": "Plugin has no renderable default export"
+  },
+  "errors": {
+    "registryFailed": "Failed to load operator registry"
+  }
+}
