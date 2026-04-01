@@ -1,37 +1,40 @@
-# GeniSpace operators-internal（平台内置算子）
+# GeniSpace operators-custom（开源算子脚手架）
 
 **🌐 语言**: **中文** | [English](README.md)
 
-> **平台官方内置**算子服务：HTTP/OpenAPI 执行面 + 可选 **Chat 远程插件**（`/static/plugins` 托管）。
+> **面向客户与集成方**的开源脚手架：自建 **HTTP 算子服务**，可选托管 **Chat 远程插件**（`/static/plugins`）。用于搭建企业或团队自有的 **算子/工具库**（对应 GeniSpace 上的插件、工作流组件与 Chat 侧展示扩展），由你部署并通过 **算子定义 URL** 导入平台。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
 
-本仓库与面向客户随意 fork 的 **`operators-custom` 模板仓** 不同：跟随平台版本发布，对接控制面导入与插件 URL 策略。**如何创建与维护算子**（目录、`*.operator.js` 与路由、用户/系统配置、`__config` 与 `configDelivery`、Chat 插件、认证、联调与部署）见 **[docs/creating-operators.md](docs/creating-operators.md)**。
+**创建与维护算子**的完整约定（目录、`*.operator.js` / `*.routes.js`、用户/系统配置、`__config` 与 `configDelivery`、`plugins/<slot>/`、Chat 插件、认证、本地联调与部署）见 **[docs/creating-operators.md](docs/creating-operators.md)**。该文档以官方参考仓为表述基准；**本模板与之一致的契约**，保证导入与运行行为与 GeniSpace 对齐。
 
 ## 💡 什么是算子？
 
 算子在 **`*.operator.js` 根级** 用 **`methods`** 声明 HTTP 方法与 JSON Schema；服务加载时 **派生 OpenAPI** 供 Swagger UI 与端点索引。可选根级 **`chatPluginByMethod`** 映射到导出定义里的 **`chatPluginConfig`**，Chat 通过 `loadRemotePlugin` 加载同仓构建的 `manifest.json` + 脚本做富展示。历史 **`genispace.methods` / `genispace.chatPluginByMethod`** 仍兼容。
 
-## 🚀 相对 operators-custom 的增量能力
+## 🧩 脚手架提供的能力
 
-- **`PUBLIC_BASE_URL`**：导出 definition 时拼接绝对 **`pluginUrl`**。
-- **`npm run build:plugins`**：聚合 `operators/**/plugin/` → `public/plugins/`，经 **`/static/plugins`** 访问。
-- **`npm run dev`**：同时启动 Express（默认 `8080`）与 Vite 调试台（`18080`），表单 + 插件预览闭环。
-- **示范算子** `operators/web/web-browser/`：与 Agent 内置 `web_browser` 入参/校验/输出 JSON 对齐（无 Puppeteer）。
+- **`PUBLIC_BASE_URL`**（或 **`OPERATORS_BASE_URL`**）：导出 definition 时生成浏览器可访问的绝对 **`pluginUrl`**。
+- **`npm run build:plugins`**：将各算子下含 **`manifest.json`** 的 **`operators/**/plugins/<slot>/`** 复制到 `public/plugins/...`，经 **`/static/plugins`** 提供（详见 [creating-operators.md](docs/creating-operators.md) 第 3、8 节）。
+- **`npm run dev`**：同时启动 Express（默认 `8080`）与 Vite 调试台（`18080`），表单与插件预览闭环。
+- **本仓自带示例**：`operators/weather/weather-forecast`（HTTP + 可选 `plugins/forecast/`）、`operators/platform/genispace-info`（GeniSpace JS SDK 调用示例）。
 
-### 核心优势
+### 与 GeniSpace 平台的分工
 
-- 与 custom 相同的 **Express 路由** 模式；契约以 **methods** 为主、OpenAPI 为派生，并内置 **Chat 插件** 工程化路径。
-- 边界清晰：本仓实现 HTTP/静态插件；**注册与权限在 Core API**；**MCP 列表在 mcp-server**；**渲染在 Chat**。
+- **你的仓库**：HTTP 执行面 + 可选静态插件资源。
+- **平台**：算子注册、权限、合并用户/系统配置；通过 **「算子定义导入」** 拉取你服务暴露的 definition。
+- **MCP-Server / Chat**：工具列表与结果渲染；存在 **`chatPluginConfig`** 时 Chat 可加载远程插件。
+
+**与 [operators-internal](https://github.com/genispace/operators-internal) 的关系**：后者为**平台官方内置**算子，随平台版本发布；**operators-custom** 是**客户自有**模板 —— **Fork 后自行迭代、自行部署与发版**，搭建专属工具与组件库。
 
 ## 🚀 快速上手
 
 ### 1. 安装、构建插件、启动服务
 
 ```bash
-git clone https://github.com/genispace/operators-internal.git
-cd operators-internal
+git clone https://github.com/genispace/operators-custom.git
+cd operators-custom
 npm install
 npm run build:plugins
 npm start
@@ -41,7 +44,7 @@ npm start
 - 🏠 **首页**：http://localhost:8080/api
 - 📚 **API 文档**：http://localhost:8080/api/docs  
 - 🔍 **健康检查**：http://localhost:8080/health
-- 📦 **示例插件**：http://localhost:8080/static/plugins/web/web-browser/manifest.json
+- 📦 **示例插件 manifest**：http://localhost:8080/static/plugins/weather/weather-forecast/plugins/forecast/manifest.json
 
 ### 2. 本地调试台
 
@@ -57,10 +60,10 @@ npm run dev
 # 运行回归测试
 npm test
 
-# 测试字符串工具
-curl -X POST http://localhost:8080/api/text-processing/string-utils/format \
+# 示例：天气预报（Open-Meteo）
+curl -X POST http://localhost:8080/api/weather/weather-forecast/forecast \
   -H "Content-Type: application/json" \
-  -d '{"input":"hello world","options":{"case":"title"}}'
+  -d '{"location":"Berlin","days":3}'
 ```
 
 ### 4. 导入到 GeniSpace 平台
@@ -176,28 +179,18 @@ npm test
 ## 🏗️ 项目结构
 
 ```
-genispace-operators-custom/
-├── operators/              # 算子目录
-│   ├── text-processing/    # 文本处理算子
-│   │   └── string-utils/    # 字符串工具算子
-│   │       ├── string-utils.operator.js  # 算子配置
-│   │       └── string-utils.routes.js    # 业务逻辑
-│   ├── data-transform/     # 数据转换算子
-│   │   └── json-transformer/ # JSON转换器算子
-│   │       ├── json-transformer.operator.js  # 算子配置
-│   │       └── json-transformer.routes.js    # 业务逻辑
-│   ├── notification/       # 通知服务算子
-│   │   └── email-sender/   # 邮件发送器算子
-│   │       ├── email-sender.operator.js  # 算子配置
-│   │       └── email-sender.routes.js    # 业务逻辑
-│   ├── web/               # 网页展示类（浏览器/重定向/HTML/iframe）
-│   ├── search/            # 搜索类（如 tavily-search）
-│   ├── weather/           # 天气类（weather-forecast）
-│   └── platform/          # 仅平台集成（genispace-info）
-│       └── genispace-info/
+operators-custom/
+├── operators/              # 你的算子目录（按需增删分类）
+│   ├── weather/
+│   │   └── weather-forecast/   # 示例：HTTP + plugins/forecast/ Chat 资源
+│   │       ├── weather-forecast.operator.js
+│   │       ├── weather-forecast.routes.js
+│   │       └── plugins/forecast/   # manifest.json、index.js、widget、locales/…
+│   └── platform/
+│       └── genispace-info/     # 示例：GeniSpace JS SDK
 │           ├── genispace-info.operator.js
 │           └── genispace-info.routes.js
-├── src/                   # 核心框架（无需修改）
+├── src/                   # 核心框架（一般无需修改）
 │   ├── config/            # 配置管理
 │   ├── core/              # 核心服务（发现、注册、路由）
 │   ├── middleware/        # 中间件（认证、日志、错误处理）
@@ -211,16 +204,14 @@ genispace-operators-custom/
 └── README_CN.md         # 中文文档
 ```
 
-## 🧪 内置算子示例
+## 🧪 本模板中的示例算子
 
-| 算子 | 功能 | 端点 |
-|------|------|------|
-| 字符串工具 | 格式化、验证 | `/api/text-processing/string-utils/*` |
-| JSON转换器 | 筛选、合并 | `/api/data-transform/json-transformer/*` |
-| 邮件发送器 | 邮件通知 | `/api/notification/email-sender/*` |
-| **GeniSpace平台信息** | **平台集成演示** | `/api/platform/genispace-info/*` |
+| 算子 | 作用 | 示例端点 |
+|------|------|----------|
+| **天气预报** | Open-Meteo + 可选 Chat 插件 | `POST /api/weather/weather-forecast/forecast` |
+| **GeniSpace 平台信息** | SDK / 平台 API 演示 | `/api/platform/genispace-info/*` |
 
-> **新增**: GeniSpace平台信息算子演示了如何在算子中使用SDK调用平台功能，包括用户信息、智能体列表、任务创建等。
+在 `operators/<category>/<name>/` 下按 [docs/creating-operators.md](docs/creating-operators.md) 继续扩展即可。
 
 ## 🔧 配置说明
 
@@ -280,17 +271,17 @@ GENISPACE_API_BASE_URL=https://api.genispace.com
 启用认证后，客户端需要在请求头中包含有效的 GeniSpace API Key：
 
 ```bash
-# 使用 GeniSpace 专用认证格式
-curl -X POST http://your-operator-service:8080/api/document/pdf-generator/generate-from-html \
+# GeniSpace 认证头（与平台调用你服务时的格式一致）
+curl -X POST http://your-operator-service:8080/api/weather/weather-forecast/forecast \
   -H "Authorization: GeniSpace your-genispace-api-key" \
   -H "Content-Type: application/json" \
-  -d '{"htmlContent": "<h1>Hello</h1>"}'
+  -d '{"location":"Berlin","days":3}'
 
-# 字符串处理示例
-curl -X POST http://your-operator-service:8080/api/text-processing/string-utils/format \
+# 平台信息示例（GENISPACE_AUTH_ENABLED=true 时需要认证）
+curl -X POST http://your-operator-service:8080/api/platform/genispace-info/user-profile \
   -H "Authorization: GeniSpace your-genispace-api-key" \
   -H "Content-Type: application/json" \
-  -d '{"input": "hello world", "options": {"case": "title"}}'
+  -d '{"includeStatistics":true}'
 ```
 
 #### 3. 使用 GeniSpace JavaScript SDK

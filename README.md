@@ -1,37 +1,40 @@
-# GeniSpace operators-internal
+# GeniSpace operators-custom
 
 **🌐 Language**: [中文](README_CN.md) | **English**
 
-> **Platform-internal** operator service: OpenAPI HTTP operators plus optional **Chat remote plugins** served from `/static/plugins`.
+> **Open-source operator scaffold** — host your own HTTP operator service and optional **Chat remote plugins** (`/static/plugins`). Use it to build a **private operator library** (GeniSpace tools / workflow components / Chat UI extensions) that you deploy and register on the platform via **definition URL**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
 
-This repository is **not** the customer-facing `operators-custom` template. It ships **official built-in operators** for GeniSpace (release cadence follows the platform). **Authoring guide** (directory layout, `*.operator.js` / routes, user vs system configuration, `__config` / `configDelivery`, Chat plugins, auth, local dev, deploy): [docs/creating-operators.md](docs/creating-operators.md).
+**Authoring guide** (folders, `*.operator.js` / `*.routes.js`, user vs system configuration, `__config` / `configDelivery`, `plugins/<slot>/`, auth, local dev, deploy): [docs/creating-operators.md](docs/creating-operators.md). The guide is written against the official reference layout; **this template follows the same contract** so imports and runtime behavior match GeniSpace.
 
 ## 💡 What is an Operator?
 
 An operator declares HTTP methods and JSON Schemas in root-level **`methods`**. At load time the service **derives OpenAPI** for Swagger and endpoint indexing. Optional root **`chatPluginByMethod`** maps to exported **`chatPluginConfig`** so Chat can load a **remote plugin** (`manifest.json` + JS bundle) for rich UI. Legacy **`genispace.*`** nesting remains supported.
 
-## 🚀 What This Repo Adds (vs operators-custom)
+## 🧩 What this scaffold includes
 
-- **`PUBLIC_BASE_URL`** (or `OPERATORS_BASE_URL`) for absolute **`pluginUrl`** in exported definitions.
-- **`npm run build:plugins`** → copies each `operators/**/plugin/` into `public/plugins/...`, served at **`/static/plugins/...`**.
-- **`npm run dev`** → Express (default `:8080`) + Vite playground (`:18080`) for schema forms and plugin preview.
-- **Pilot operator**: `operators/web/web-browser/` aligned with the Python `web_browser` builtin (input validation + MCP-shaped JSON only; no headless browser).
+- **`PUBLIC_BASE_URL`** (or `OPERATORS_BASE_URL`) so exported definitions contain absolute **`pluginUrl`** for browser-loaded Chat plugins.
+- **`npm run build:plugins`** — copies each `operators/**/plugins/<slot>/` (with `manifest.json`) into `public/plugins/...`, served at **`/static/plugins/...`** (see [creating-operators.md](docs/creating-operators.md) §3 / §8).
+- **`npm run dev`** — Express (default `:8080`) + Vite playground (`:18080`) for schema forms and plugin preview.
+- **Starter examples in this repo**: `operators/weather/weather-forecast` (HTTP + optional `plugins/forecast/`), `operators/platform/genispace-info` (GeniSpace JS SDK demo).
 
-### Core Advantages
+### How it fits GeniSpace
 
-- Same **Express** routing model as custom operators; contract is **methods-first** with **derived OpenAPI**, plus **first-class Chat plugin** workflow.
-- **Clear boundary**: implementation here, registration and ACL in **Core API**, tool listing in **MCP-Server**, rendering in **Chat**.
+- **Your repository**: HTTP execution surface + optional static plugin assets.
+- **GeniSpace platform**: registration, ACL, merged user/system config; you **import** each operator’s **definition** URL from your running service.
+- **MCP-Server / Chat**: tool exposure and rendering; Chat may **`loadRemotePlugin`** when `chatPluginConfig` is present.
+
+**vs [operators-internal](https://github.com/genispace/operators-internal)** (official built-in operators, platform release cadence): **operators-custom** is the **customer-owned** template — fork, extend, and ship on **your** infrastructure and release cycle.
 
 ## 🚀 Quick Start
 
 ### 1. Install, build plugins, start API
 
 ```bash
-git clone https://github.com/genispace/operators-internal.git
-cd operators-internal
+git clone https://github.com/genispace/operators-custom.git
+cd operators-custom
 npm install
 npm run build:plugins
 npm start
@@ -41,7 +44,7 @@ Access:
 - 🏠 **Homepage**: http://localhost:8080/api (HTML index)
 - 📚 **API Docs**: http://localhost:8080/api/docs  
 - 🔍 **Health Check**: http://localhost:8080/health
-- 📦 **Example plugin manifest**: http://localhost:8080/static/plugins/web/web-browser/manifest.json
+- 📦 **Example plugin manifest**: http://localhost:8080/static/plugins/weather/weather-forecast/plugins/forecast/manifest.json
 
 ### 2. Dev playground (operators + UI preview)
 
@@ -57,10 +60,10 @@ Open **http://localhost:18080** — API and `/static` are proxied to `8080`.
 # Run regression tests
 npm test
 
-# Test string utilities
-curl -X POST http://localhost:8080/api/text-processing/string-utils/format \
+# Example: weather forecast (Open-Meteo)
+curl -X POST http://localhost:8080/api/weather/weather-forecast/forecast \
   -H "Content-Type: application/json" \
-  -d '{"input":"hello world","options":{"case":"title"}}'
+  -d '{"location":"Berlin","days":3}'
 ```
 
 ### 4. Import to GeniSpace Platform
@@ -176,25 +179,18 @@ npm test
 ## 🏗️ Project Structure
 
 ```
-genispace-operators-custom/
-├── operators/              # Operators directory
-│   ├── text-processing/    # Text processing operators
-│   │   └── string-utils/    # String utilities operator
-│   │       ├── string-utils.operator.js  # Operator configuration
-│   │       └── string-utils.routes.js    # Business logic
-│   ├── data-transform/     # Data transformation operators
-│   │   └── json-transformer/ # JSON transformer operator
-│   │       ├── json-transformer.operator.js  # Operator configuration
-│   │       └── json-transformer.routes.js    # Business logic
-│   ├── notification/       # Notification service operators
-│   │   └── email-sender/   # Email sender operator
-│   │       ├── email-sender.operator.js  # Operator configuration
-│   │       └── email-sender.routes.js    # Business logic
-│   └── platform/          # Platform integration operators
-│       └── genispace-info/ # GeniSpace platform info operator
-│           ├── genispace-info.operator.js  # Operator configuration
-│           └── genispace-info.routes.js    # Business logic
-├── src/                   # Core framework (no modification needed)
+operators-custom/
+├── operators/              # Your operators (add categories as needed)
+│   ├── weather/
+│   │   └── weather-forecast/   # Example: HTTP + plugins/forecast/ Chat bundle
+│   │       ├── weather-forecast.operator.js
+│   │       ├── weather-forecast.routes.js
+│   │       └── plugins/forecast/   # manifest.json, index.js, widget, locales/…
+│   └── platform/
+│       └── genispace-info/     # Example: GeniSpace JS SDK usage
+│           ├── genispace-info.operator.js
+│           └── genispace-info.routes.js
+├── src/                   # Core framework (usually no changes)
 │   ├── config/            # Configuration management
 │   ├── core/              # Core services (discovery, registry, routing)
 │   ├── middleware/        # Middleware (auth, logging, error handling)
@@ -208,16 +204,14 @@ genispace-operators-custom/
 └── README.md            # English documentation
 ```
 
-## 🧪 Built-in Operator Examples
+## 🧪 Example operators in this template
 
-| Operator | Function | Endpoint |
-|----------|----------|----------|
-| String Utils | Format, validate | `/api/text-processing/string-utils/*` |
-| JSON Transformer | Filter, merge | `/api/data-transform/json-transformer/*` |
-| Email Sender | Email notifications | `/api/notification/email-sender/*` |
-| **GeniSpace Platform Info** | **Platform integration demo** | `/api/platform/genispace-info/*` |
+| Operator | Role | Endpoint (sample) |
+|----------|------|-------------------|
+| **Weather forecast** | Open-Meteo + optional Chat plugin | `POST /api/weather/weather-forecast/forecast` |
+| **GeniSpace platform info** | SDK / platform API demo | `/api/platform/genispace-info/*` |
 
-> **New**: GeniSpace Platform Info operator demonstrates how to use SDK to call platform functions in operators, including user info, agent lists, etc.
+Add more under `operators/<category>/<name>/` following [docs/creating-operators.md](docs/creating-operators.md).
 
 ## 🔧 Configuration Instructions
 
@@ -280,17 +274,17 @@ GENISPACE_API_BASE_URL=https://api.genispace.com
 After enabling authentication, clients need to include valid GeniSpace API Key in request headers:
 
 ```bash
-# Use GeniSpace dedicated authentication format
-curl -X POST http://your-operator-service:8080/api/document/pdf-generator/generate-from-html \
+# GeniSpace auth header (same shape the platform uses when calling your service)
+curl -X POST http://your-operator-service:8080/api/weather/weather-forecast/forecast \
   -H "Authorization: GeniSpace your-genispace-api-key" \
   -H "Content-Type: application/json" \
-  -d '{"htmlContent": "<h1>Hello</h1>"}'
+  -d '{"location":"Berlin","days":3}'
 
-# String processing example
-curl -X POST http://your-operator-service:8080/api/text-processing/string-utils/format \
+# Platform info (requires auth when GENISPACE_AUTH_ENABLED=true)
+curl -X POST http://your-operator-service:8080/api/platform/genispace-info/user-profile \
   -H "Authorization: GeniSpace your-genispace-api-key" \
   -H "Content-Type: application/json" \
-  -d '{"input": "hello world", "options": {"case": "title"}}'
+  -d '{"includeStatistics":true}'
 ```
 
 #### 3. Using GeniSpace JavaScript SDK
@@ -396,22 +390,10 @@ Test coverage:
    - API documentation generates normally
    - Operator definition links are accessible
 
-4. **API算子GeniSpace认证配置**
-   - 在算子运行配置中启用"GeniSpace认证"选项后，系统会自动传递System API Key
-   - 算子可以通过认证头验证执行人身份：
-   ```javascript
-   // 在算子路由中使用认证中间件
-   router.post('/my-api', auth(), (req, res) => {
-     if (req.genispace) {
-       // 获取执行人信息
-       const user = req.genispace.user;
-       const apiKey = req.genispace.apiKey;
-       // 算子逻辑...
-     }
-   });
-   ```
-   - 认证头格式：`GeniSpace: <system-api-key>`
-   - 可获取执行人信息：用户ID、姓名、邮箱、团队ID等
+4. **GeniSpace auth on imported operators**
+   - When “GeniSpace authentication” is enabled in the operator runtime config, the platform may attach a **System API Key** on outbound calls.
+   - In routes you can validate the caller via middleware and read `req.genispace` (user, API key, etc.).
+   - Header shape: `GeniSpace: <system-api-key>` (see also root `enableGeniSpaceAuth` in [creating-operators.md](docs/creating-operators.md)).
 
 ## 💡 Common Questions
 
