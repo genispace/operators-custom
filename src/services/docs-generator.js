@@ -27,13 +27,80 @@ class DocumentGenerator {
           url: 'https://opensource.org/licenses/MIT'
         }
       },
-      servers: [
-        {
-          url: 'http://localhost:8080',
-          description: '开发服务器'
-        }
-      ]
+      servers: DocumentGenerator._buildOpenApiServers(config)
     };
+  }
+
+  /**
+   * Swagger「Servers」与 try-it-out 基准地址；优先 PUBLIC_BASE_URL（与 K8s ConfigMap 一致）
+   */
+  /**
+   * 若对外 URL 带 path（如 .../operators/internal），OpenAPI server 只用 origin，
+   * paths 仍含完整前缀，避免 Swagger 拼成 .../operators/internal/operators/internal/...
+   */
+  static _openApiServerUrlFromPublicBase(url) {
+    const s = url && String(url).trim();
+    const t = s ? s.replace(/\/$/, '') : '';
+    if (!t) return t;
+    try {
+      const p = new URL(t);
+      const pathname = (p.pathname || '/').replace(/\/$/, '');
+      if (pathname) {
+        return `${p.protocol}//${p.host}`;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return t;
+  }
+
+  static _buildOpenApiServers(config = {}) {
+    const trim = (v) => {
+      const s = v && String(v).trim();
+      return s ? s.replace(/\/$/, '') : '';
+    };
+
+    const explicit =
+      trim(config.publicBaseUrl) || trim(process.env.PUBLIC_BASE_URL);
+    if (explicit) {
+      return [
+        {
+          url: DocumentGenerator._openApiServerUrlFromPublicBase(explicit),
+          description: '对外服务'
+        }
+      ];
+    }
+
+    const operatorsBase = trim(process.env.OPERATORS_BASE_URL);
+    if (operatorsBase) {
+      return [
+        {
+          url: DocumentGenerator._openApiServerUrlFromPublicBase(operatorsBase),
+          description: '对外服务'
+        }
+      ];
+    }
+
+    let url = '';
+    if (typeof config.getBrowserBaseUrl === 'function') {
+      url = trim(config.getBrowserBaseUrl());
+    } else if (typeof config.getServiceBaseUrl === 'function') {
+      url = trim(config.getServiceBaseUrl());
+    }
+    if (!url) {
+      const host =
+        (process.env.HOST || 'localhost') === '0.0.0.0'
+          ? 'localhost'
+          : process.env.HOST || 'localhost';
+      const port = process.env.PORT || 8080;
+      const protocol = process.env.PROTOCOL || 'http';
+      url = `${protocol}://${host}:${port}`;
+    }
+
+    const description = /localhost|127\.0\.0\.1/.test(url)
+      ? '开发服务器'
+      : '服务地址';
+    return [{ url, description }];
   }
 
   /**
@@ -58,6 +125,14 @@ class DocumentGenerator {
       logger.error('OpenAPI 文档生成失败', { error: error.message });
       throw error;
     }
+  }
+
+  /**
+   * 无 tags 时的回退标签
+   * @private
+   */
+  _getTagName(category) {
+    return category || 'default';
   }
 
   /**

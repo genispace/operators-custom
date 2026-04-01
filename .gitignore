@@ -148,3 +148,6 @@ debug.js
 *.bak
 *.backup
 *.orig
+
+# Chat plugin static assets (npm run build:plugins / npm run build)
+public/plugins/

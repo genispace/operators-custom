@@ -4,13 +4,14 @@
  * 协调各个核心组件，实现算子平台的核心功能
  */
 
-const path = require('path');
 // const swaggerJsDoc = require('swagger-jsdoc'); // 不再需要，直接使用自定义文档生成器
 const OperatorRegistry = require('../core/registry');
 const OperatorDiscovery = require('../core/discovery');
 const RouterBuilder = require('../core/router');
 const DocumentGenerator = require('./docs-generator');
 const logger = require('../utils/logger');
+const { operatorMethods, chatPluginByMethodMap } = require('../utils/operator-definition');
+const { playgroundNeedsGeniSpaceKey } = require('../utils/operator-auth');
 
 class ApplicationService {
   constructor(config = {}) {
@@ -89,7 +90,12 @@ class ApplicationService {
   getOperators() {
     return this.registry.getAll().map(operatorData => {
       const { config, metadata } = operatorData;
-      const endpoints = config.openapi?.paths ? Object.keys(config.openapi.paths) : [];
+      const pathSet = new Set(
+        operatorMethods(config).map((m) =>
+          m.path && String(m.path).startsWith('/') ? m.path : `/${m.path || ''}`
+        )
+      );
+      const endpoints = [...pathSet];
       
       return {
         id: metadata.id,
@@ -127,15 +133,75 @@ class ApplicationService {
     }
 
     const { config, metadata } = operatorData;
-    
-    // 构建基础URL（如果提供了请求对象）
+    const fileMetadata =
+      config.metadata && typeof config.metadata === 'object' ? { ...config.metadata } : {};
+
+    // 构建基础URL（如果提供了请求对象）；网关后常见未带 X-Forwarded-Proto，req.secure 为 false 会误判为 http
     let baseUrl = '';
     if (req) {
       const protocol = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
       const host = req.headers['x-forwarded-host'] || req.headers.host || `${process.env.HOST || 'localhost'}:${process.env.PORT || 8080}`;
       baseUrl = `${protocol}://${host}`;
     }
-    
+
+    const explicitGenispaceApiBase = process.env.GENISPACE_API_BASE_URL && String(process.env.GENISPACE_API_BASE_URL).trim();
+    const serverUrlDefault = explicitGenispaceApiBase
+      ? explicitGenispaceApiBase.replace(/\/$/, '')
+      : baseUrl;
+
+    const defaultSystemConfiguration = {
+      schema: {
+        type: 'api',
+        properties: {
+          serverUrl: {
+            type: 'string',
+            title: '服务器地址',
+            required: true,
+            description: 'API 服务器的基础地址',
+            default: serverUrlDefault
+          },
+          timeout: {
+            type: 'number',
+            title: '全局超时时间',
+            default: 30000,
+            description: '请求超时时间（毫秒）'
+          },
+          headers: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                key: { type: 'string' },
+                value: { type: 'string' }
+              }
+            },
+            title: '全局请求头',
+            description: '应用于所有请求的全局请求头'
+          },
+          retryPolicy: {
+            type: 'object',
+            title: '全局重试策略',
+            properties: {
+              intervalMs: {
+                type: 'number',
+                title: '重试间隔',
+                default: 1000
+              },
+              maxAttempts: {
+                type: 'number',
+                title: '最大重试次数',
+                default: 3
+              }
+            }
+          }
+        }
+      }
+    };
+    const customUserConfiguration =
+      config.configuration && typeof config.configuration === 'object'
+        ? config.configuration
+        : { schema: { type: 'object', properties: {} }, values: {} };
+
     // 构建GeniSpace算子定义格式
     return {
       type: 'genispace-operator',
@@ -149,23 +215,127 @@ class ApplicationService {
         tags: config.info.tags || [],
         author: config.info.author || 'genispace.com Dev Team',
         
-        // 基础配置
+        // 用户级配置（由算子定义文件根级 configuration 提供）
+        configuration: {
+          schema: customUserConfiguration.schema || { type: 'object', properties: {} },
+          values: customUserConfiguration.values || {}
+        },
+        // 系统级 API 运行配置（用于服务地址、全局头、超时等）
+        systemConfiguration: defaultSystemConfiguration,
+
+        // 方法定义（根级 methods；合并 chatPluginByMethod → chatPluginConfig）
+        methods: this._mergeChatPluginConfigs(
+          this._buildMethodsFromDefinition(config),
+          config,
+          this._resolvePublicBaseUrl(baseUrl)
+        ),
+        
+        // 元数据：先写导出审计字段，再合并算子文件中的 metadata（如 locales.zh）
+        metadata: {
+          source: 'genispace-internal-operators',
+          exportedAt: new Date().toISOString(),
+          exportedBy: 'GeniSpace Custom Operators API',
+          originalOperatorId: operatorId,
+          registeredAt: metadata.registeredAt,
+          ...fileMetadata
+        }
+      }
+    };
+  }
+
+  /**
+   * 调试台：返回已注册算子及方法的 inputSchema、endpoint、chatPluginConfig
+   * @param {object} req - 可选，用于解析对外 Host
+   * @returns {Array<object>}
+   */
+  getPlaygroundRegistry(req = null) {
+    if (!this.initialized) {
+      throw new Error('应用服务未初始化，请先调用 initialize()');
+    }
+
+    return this.registry.getAll()
+      .map(({ config, metadata }) => {
+        const def = this.getOperatorDefinition(metadata.id, req);
+        if (!def?.operator) {
+          return null;
+        }
+        const op = def.operator;
+        const locales = config.metadata?.locales;
+        const needsGeniSpaceKey = playgroundNeedsGeniSpaceKey(config);
+        return {
+          id: metadata.id,
+          identifier: op.identifier,
+          name: op.name,
+          category: op.category,
+          description: op.description,
+          metadata: locales ? { locales } : undefined,
+          methods: (op.methods || []).map((m) => ({
+            identifier: m.identifier,
+            name: m.name,
+            description: m.description,
+            inputSchema: m.inputSchema,
+            endpoint: m.configuration?.values?.endpoint,
+            httpMethod: m.configuration?.values?.method,
+            chatPluginConfig: m.chatPluginConfig || null,
+            needsGeniSpaceKey
+          }))
+        };
+      })
+      .filter(Boolean);
+  }
+
+  /**
+   * 解析用于拼接 pluginUrl 的对外 Origin（不含尾斜杠）
+   * @param {string} reqBaseUrl - 来自请求的动态 baseUrl
+   * @returns {string}
+   */
+  _resolvePublicBaseUrl(reqBaseUrl) {
+    const explicit = process.env.PUBLIC_BASE_URL || this.config.publicBaseUrl;
+    const trim = (v) => (v && String(v).trim()) || '';
+    const raw = trim(explicit) || trim(reqBaseUrl)
+      || (typeof this.config.getServiceBaseUrl === 'function' ? this.config.getServiceBaseUrl() : '');
+    return raw.replace(/\/$/, '');
+  }
+
+  /**
+   * 由算子 methods[]（根级或兼容 genispace.methods）构建平台 methods（含 configuration）
+   * @param {object} config - 算子配置
+   * @returns {Array<object>}
+   */
+  _buildMethodsFromDefinition(config) {
+    const apiPrefix = this.config.apiPrefix || '/api';
+    const info = config.info || {};
+    const operatorName = info.name;
+    const category = info.category;
+    const raw = operatorMethods(config);
+
+    return raw.map((m, index) => {
+      const path = m.path && String(m.path).startsWith('/') ? m.path : `/${m.path || ''}`;
+      const httpMethod = String(m.httpMethod || 'POST').toUpperCase();
+      const endpoint = `${apiPrefix}/${category}/${operatorName}${path}`;
+      const inputSchema =
+        m.inputSchema !== undefined ? m.inputSchema : { type: 'object', properties: {} };
+      const outputSchema =
+        m.outputSchema !== undefined ? m.outputSchema : { type: 'object', properties: {} };
+
+      return {
+        name: m.name,
+        identifier: m.identifier,
+        description: m.description != null ? m.description : '',
+        inputSchema,
+        outputSchema,
         configuration: {
           schema: {
-            type: 'api',
+            type: 'object',
             properties: {
-              serverUrl: {
+              method: {
                 type: 'string',
-                title: '服务器地址',
-                required: true,
-                description: 'API 服务器的基础地址',
-                default: baseUrl // 使用动态生成的基础URL作为默认值
+                enum: [httpMethod],
+                default: httpMethod
               },
-              timeout: {
-                type: 'number',
-                title: '全局超时时间',
-                default: 30000,
-                description: '请求超时时间（毫秒）'
+              endpoint: {
+                type: 'string',
+                default: endpoint
               },
               headers: {
                 type: 'array',
@@ -176,207 +346,73 @@ class ApplicationService {
                     value: { type: 'string' }
                   }
                 },
-                title: '全局请求头',
-                description: '应用于所有请求的全局请求头'
+                title: '请求头',
+                default: []
               },
-              retryPolicy: {
-                type: 'object',
-                title: '全局重试策略',
-                properties: {
-                  intervalMs: {
-                    type: 'number',
-                    title: '重试间隔',
-                    default: 1000
-                  },
-                  maxAttempts: {
-                    type: 'number',
-                    title: '最大重试次数',
-                    default: 3
-                  }
-                }
-              }
-            }
-          }
-        },
-
-        // 方法定义
-        methods: this._convertPathsToMethods(config.openapi.paths, config.info.name, config.info.category, baseUrl, config.openapi),
-        
-        // 元数据
-        metadata: {
-          source: 'genispace-custom-operators',
-          exportedAt: new Date().toISOString(),
-          exportedBy: 'GeniSpace Custom Operators API',
-          originalOperatorId: operatorId,
-          registeredAt: metadata.registeredAt
-        }
-      }
-    };
-  }
-
-
-  /**
-   * 将OpenAPI paths转换为GeniSpace方法格式
-   * @param {object} paths - OpenAPI paths
-   * @param {string} operatorName - 算子名称
-   * @param {string} category - 算子分类
-   * @param {string} baseUrl - 基础URL
-   * @param {object} fullOpenApiDoc - 完整的OpenAPI文档，用于解析$ref
-   * @returns {Array} 方法列表
-   */
-  _convertPathsToMethods(paths, operatorName, category, baseUrl = '', fullOpenApiDoc = null) {
-    const methods = [];
-    
-    Object.entries(paths).forEach(([path, pathItem]) => {
-      Object.entries(pathItem).forEach(([httpMethod, operation]) => {
-        const methodName = operation.operationId || 
-          `${httpMethod}${path.replace(/[^a-zA-Z0-9]/g, '')}`;
-        
-        methods.push({
-          name: operation.summary || methodName,
-          identifier: methodName.toLowerCase(),
-          description: operation.description || '',
-          
-          // 输入Schema（从requestBody提取）
-          inputSchema: this._extractInputSchema(operation.requestBody),
-          
-          // 输出Schema（从responses提取）
-          outputSchema: this._extractOutputSchema(operation.responses, fullOpenApiDoc),
-          
-          // 方法配置
-          configuration: {
-            schema: {
-              type: 'object',
-              properties: {
-                method: {
-                  type: 'string',
-                  enum: [httpMethod.toUpperCase()],
-                  default: httpMethod.toUpperCase()
-                },
-                endpoint: {
-                  type: 'string',
-                  default: `${this.config.apiPrefix || '/api'}/${category}/${operatorName}${path}`
-                },
-                headers: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      key: { type: 'string' },
-                      value: { type: 'string' }
-                    }
-                  },
-                  title: '请求头',
-                  default: []
-                },
-                caching: {
-                  type: 'object',
-                  properties: {
-                    enabled: { type: 'boolean', default: false },
-                    ttlSeconds: { type: 'number', default: 3600 }
-                  }
-                }
-              }
-            },
-            values: {
-              method: httpMethod.toUpperCase(),
-              endpoint: `${this.config.apiPrefix || '/api'}/${category}/${operatorName}${path}`,
-              headers: [],
               caching: {
-                enabled: false,
-                ttlSeconds: 3600
+                type: 'object',
+                properties: {
+                  enabled: { type: 'boolean', default: false },
+                  ttlSeconds: { type: 'number', default: 3600 }
+                }
               }
             }
           },
-          
-          isDefault: methods.length === 0, // 第一个方法设为默认
-          order: methods.length,
-          status: 'ACTIVE'
-        });
-      });
-    });
-    
-    return methods;
-  }
-
-  /**
-   * 从requestBody提取输入Schema
-   * @param {object} requestBody - OpenAPI requestBody
-   * @returns {object} 输入Schema
-   */
-  _extractInputSchema(requestBody) {
-    if (!requestBody) {
-      return { type: 'object', properties: {} };
-    }
-
-    const jsonContent = requestBody.content?.['application/json'];
-    if (jsonContent?.schema) {
-      return jsonContent.schema;
-    }
-
-    return { type: 'object', properties: {} };
-  }
-
-  /**
-   * 从responses提取输出Schema
-   * @param {object} responses - OpenAPI responses
-   * @param {object} fullOpenApiDoc - 完整的OpenAPI文档，用于解析$ref
-   * @returns {object} 输出Schema
-   */
-  _extractOutputSchema(responses, fullOpenApiDoc = null) {
-    // 优先查找200响应
-    const successResponse = responses['200'] || responses['201'] || responses['default'];
-    
-    if (!successResponse) {
-      return { type: 'object', properties: {} };
-    }
-
-    const jsonContent = successResponse.content?.['application/json'];
-    if (jsonContent?.schema) {
-      // 如果包含$ref，尝试解析
-      if (jsonContent.schema.$ref && fullOpenApiDoc) {
-        return this._resolveRef(jsonContent.schema.$ref, fullOpenApiDoc);
-      }
-      return jsonContent.schema;
-    }
-
-    return { type: 'object', properties: {} };
-  }
-
-  /**
-   * 解析OpenAPI中的$ref引用
-   * @param {string} ref - $ref字符串
-   * @param {object} openApiDoc - 完整的OpenAPI文档
-   * @returns {object} 解析后的schema
-   */
-  _resolveRef(ref, openApiDoc) {
-    try {
-      // 解析类似 "#/paths/~1generate-from-html/post/responses/200/content/application~1json/schema" 的引用
-      if (ref.startsWith('#/')) {
-        const pathParts = ref.substring(2).split('/');
-        let current = openApiDoc;
-        
-        for (const part of pathParts) {
-          // 处理URL编码的字符，如 ~1 代表 /
-          const decodedPart = part.replace(/~1/g, '/').replace(/~0/g, '~');
-          
-          if (current && typeof current === 'object' && decodedPart in current) {
-            current = current[decodedPart];
-          } else {
-            console.warn(`无法解析$ref路径: ${ref}`);
-            return { type: 'object', properties: {} };
+          values: {
+            method: httpMethod,
+            endpoint,
+            headers: [],
+            caching: {
+              enabled: false,
+              ttlSeconds: 3600
+            }
           }
-        }
-        
-        return current || { type: 'object', properties: {} };
-      }
-      
-      console.warn(`不支持的$ref格式: ${ref}`);
-      return { type: 'object', properties: {} };
-    } catch (error) {
-      console.error(`解析$ref失败: ${ref}`, error);
-      return { type: 'object', properties: {} };
+        },
+        isDefault: index === 0,
+        order: index,
+        status: 'ACTIVE'
+      };
+    });
+  }
+
+  /**
+   * 将 chatPluginByMethod（根级或 genispace）合并到导出方法的 chatPluginConfig
+   * @param {Array} methods - _buildMethodsFromDefinition 结果
+   * @param {object} operatorConfig - 算子 module.exports
+   * @param {string} publicBase - 对外服务根 URL
+   * @returns {Array}
+   */
+  _mergeChatPluginConfigs(methods, operatorConfig, publicBase) {
+    const byMethod = chatPluginByMethodMap(operatorConfig);
+    if (!methods || !Array.isArray(methods)) {
+      return [];
     }
+
+    return methods.map((m) => {
+      const spec = byMethod[m.identifier];
+      if (!spec || spec.enabled !== true) {
+        return m;
+      }
+
+      let pluginUrl = spec.pluginUrl;
+      if (!pluginUrl && spec.pluginPath) {
+        const p = String(spec.pluginPath).startsWith('/') ? spec.pluginPath : `/${spec.pluginPath}`;
+        pluginUrl = publicBase ? `${publicBase}${p}` : p;
+      }
+      if (pluginUrl && !String(pluginUrl).endsWith('/')) {
+        pluginUrl = `${pluginUrl}/`;
+      }
+
+      const extra = spec.extra && typeof spec.extra === 'object' ? spec.extra : {};
+      const chatPluginConfig = {
+        enabled: true,
+        pluginId: spec.pluginId,
+        pluginUrl,
+        ...extra
+      };
+
+      return { ...m, chatPluginConfig };
+    });
   }
 
   /**

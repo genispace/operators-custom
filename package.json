@@ -1,42 +1,41 @@
 {
-  "name": "operator-custom",
+  "name": "operators-internal",
   "version": "1.0.0",
-  "description": "GeniSpace AI Platform Custom Operators Collection - Lightweight operators framework for business automation",
+  "description": "GeniSpace platform-internal operators: HTTP OpenAPI operators plus colocated Chat plugin static assets.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "node test.js",
-    "build": "echo 'Build completed successfully'",
-    "docker:build": "docker build -t genispace/operator-custom:latest .",
-    "docker:run": "docker run -p 8080:8080 genispace/operator-custom:latest"
+    "dev:server": "nodemon src/index.js",
+    "dev:playground": "npm run dev --prefix dev-playground",
+    "dev": "concurrently -n server,playground -c blue,magenta \"npm run dev:server\" \"npm run dev:playground\"",
+    "build:plugins": "node scripts/build-plugins.js",
+    "build": "npm run build:plugins",
+    "build:all": "npm run build",
+    "test": "node scripts/run-tests.js",
+    "test:e2e": "node test.js",
+    "docker:build": "docker build -t genispace/operators-internal:latest .",
+    "docker:run": "docker run -p 8080:8080 genispace/operators-internal:latest"
   },
   "keywords": [
     "genispace",
+    "operators-internal",
     "operators",
-    "automation",
-    "ai-platform",
-    "microservice",
-    "nodejs",
-    "express",
     "openapi",
-    "swagger"
+    "chat-plugins"
   ],
   "author": "genispace.com Dev Team <dev@genispace.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/genispace/operator-custom.git"
+    "url": "https://github.com/genispace/operators-internal.git"
   },
-  "bugs": {
-    "url": "https://github.com/genispace/operator-custom/issues"
-  },
-  "homepage": "https://github.com/genispace/operator-custom#readme",
   "engines": {
-    "node": ">=16.0.0",
+    "node": ">=18.0.0",
     "npm": ">=8.0.0"
   },
   "dependencies": {
+    "ajv": "^8.12.0",
+    "@sendgrid/mail": "^8.1.6",
     "axios": "^1.6.2",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
@@ -45,13 +44,20 @@
     "express-rate-limit": "^7.1.5",
     "genispace": "^1.0.4",
     "joi": "^17.11.0",
+    "jsonpath": "^1.1.1",
     "morgan": "^1.10.0",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",
+    "lodash": "^4.17.21",
+    "mariadb": "^3.2.0",
+    "mysql2": "^3.6.0",
+    "pg": "^8.11.3",
+    "sql-parser": "^0.5.0",
     "uuid": "^9.0.1",
     "winston": "^3.11.0"
   },
   "devDependencies": {
+    "concurrently": "^9.1.0",
     "nodemon": "^3.0.2"
   }
 }

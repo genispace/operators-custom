@@ -7,6 +7,8 @@
 const fs = require('fs').promises;
 const path = require('path');
 const logger = require('../utils/logger');
+const { deriveOpenApiFromConfig } = require('../utils/derive-openapi-from-methods');
+const { operatorMethods } = require('../utils/operator-definition');
 
 class OperatorDiscovery {
   constructor(options = {}) {
@@ -66,9 +68,16 @@ class OperatorDiscovery {
       const operatorConfig = require(filePath);
       const category = this._extractCategory(filePath);
       
-      // 验证算子配置结构
+      // 验证算子配置结构（唯一真相：根级 methods，或兼容 genispace.methods）
       if (!this._validateOperatorConfig(operatorConfig)) {
         logger.error(`算子配置格式错误: ${filePath}`);
+        return null;
+      }
+
+      try {
+        operatorConfig.openapi = deriveOpenApiFromConfig(operatorConfig);
+      } catch (err) {
+        logger.error(`派生 OpenAPI 失败: ${filePath}`, { error: err.message });
         return null;
       }
       
@@ -216,9 +225,25 @@ class OperatorDiscovery {
     if (!config.routes || typeof config.routes !== 'string') {
       return false;
     }
-    
-    if (!config.openapi || !config.openapi.paths) {
+
+    const methods = operatorMethods(config);
+    if (methods.length === 0) {
       return false;
+    }
+
+    for (const m of methods) {
+      if (!m || typeof m !== 'object') {
+        return false;
+      }
+      if (!m.identifier || typeof m.identifier !== 'string') {
+        return false;
+      }
+      if (!m.name || typeof m.name !== 'string') {
+        return false;
+      }
+      if (!m.path || typeof m.path !== 'string') {
+        return false;
+      }
     }
     
     return true;

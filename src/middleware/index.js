@@ -40,9 +40,11 @@ function setupMiddlewares(app, config) {
         return callback(null, true);
       }
       
-      // 生产环境使用配置的origin
+      // 生产环境使用配置的 origin（逗号分隔会变成数组；CORS_ORIGIN=* 经 split 后为 ['*']，须按通配符处理）
       const allowedOrigins = Array.isArray(config.corsOrigin) ? config.corsOrigin : [config.corsOrigin];
-      if (config.corsOrigin === '*' || allowedOrigins.indexOf(origin) !== -1) {
+      const allowAny =
+        config.corsOrigin === '*' || allowedOrigins.includes('*');
+      if (allowAny || allowedOrigins.indexOf(origin) !== -1) {
         return callback(null, true);
       }
       
@@ -51,7 +53,7 @@ function setupMiddlewares(app, config) {
     credentials: true,
     optionsSuccessStatus: 200,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'GeniSpace', 'X-Requested-With', 'Accept', 'Origin'],
     exposedHeaders: ['Content-Length', 'X-Total-Count']
   }));
 

@@ -14,14 +14,14 @@ const express = require('express');
  */
 function setupRoutes(app, appService, config) {
   const apiPrefix = config.apiPrefix || '/api';
-  // 首页 - 使用 apiPrefix
-  app.get(apiPrefix, (req, res) => {
+  // 首页：根路径与 apiPrefix 均可访问（回归测试与浏览器直接打开服务根 URL）
+  const renderServiceHome = (req, res) => {
     const stats = appService.getStats();
     const operators = appService.getOperators();
     const packageInfo = require('../../package.json');
     
-    // 使用配置中的 getServiceBaseUrl 获取基础URL
-    const baseUrl = config.getServiceBaseUrl();
+    // 对外可复制链接：OPERATORS_BASE_URL 已含 apiPrefix 时不要重复拼一段
+    const publicRouteBase = config.getPublicRouteBaseUrl();
     
     // 生成HTML首页
     const html = `
@@ -165,8 +165,8 @@ function setupRoutes(app, appService, config) {
                             <span class="methods-count">${op.endpointCount} 个方法</span>
                         </div>
                         <div class="copy-url">
-                            <code>${baseUrl}${apiPrefix}/operators/${op.category}/${op.name}/definition</code>
-                            <button class="copy-btn" onclick="copyToClipboard('${baseUrl}${apiPrefix}/operators/${op.category}/${op.name}/definition', this)">复制</button>
+                            <code>${publicRouteBase}/operators/${op.category}/${op.name}/definition</code>
+                            <button class="copy-btn" onclick="copyToClipboard('${publicRouteBase}/operators/${op.category}/${op.name}/definition', this)">复制</button>
                         </div>
                     </div>
                 `).join('')}
@@ -177,14 +177,14 @@ function setupRoutes(app, appService, config) {
             <h2 class="section-title">🔗 常用API链接</h2>
             <div class="api-links">
                 <div class="copy-url">
-                    <code>${baseUrl}${apiPrefix}/docs</code>
-                    <button class="copy-btn" onclick="copyToClipboard('${baseUrl}${apiPrefix}/docs', this)">复制</button>
+                    <code>${publicRouteBase}/docs</code>
+                    <button class="copy-btn" onclick="copyToClipboard('${publicRouteBase}/docs', this)">复制</button>
                 </div>
                 <div style="margin: 5px 0; color: #64748b;">Swagger API 文档</div>
                 
                 <div class="copy-url">
-                    <code>${baseUrl}${apiPrefix}/operators</code>
-                    <button class="copy-btn" onclick="copyToClipboard('${baseUrl}${apiPrefix}/operators', this)">复制</button>
+                    <code>${publicRouteBase}/operators</code>
+                    <button class="copy-btn" onclick="copyToClipboard('${publicRouteBase}/operators', this)">复制</button>
                 </div>
                 <div style="margin: 5px 0; color: #64748b;">算子列表 API</div>
                 
@@ -218,7 +218,10 @@ function setupRoutes(app, appService, config) {
     
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
-  });
+  };
+
+  app.get(apiPrefix, renderServiceHome);
+  app.get('/', renderServiceHome);
 
   // 健康检查
   app.get('/health', (req, res) => {
@@ -241,6 +244,23 @@ function setupRoutes(app, appService, config) {
         }
       }
     });
+  });
+
+  // 本地调试台：算子 + 方法 + schema + chatPluginConfig（无需登录）
+  app.get(`${apiPrefix}/dev/playground-registry`, (req, res) => {
+    try {
+      const operators = appService.getPlaygroundRegistry(req);
+      res.json({
+        success: true,
+        data: { operators }
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        error: error.message || 'playground-registry failed',
+        code: 'PLAYGROUND_REGISTRY_ERROR'
+      });
+    }
   });
 
   // 算子列表API

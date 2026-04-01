@@ -11,6 +11,7 @@
 const express = require('express');
 const swaggerUi = require('swagger-ui-express');
 const path = require('path');
+const { execSync } = require('child_process');
 
 // 加载环境变量
 require('dotenv').config();
@@ -25,8 +26,28 @@ const logger = require('./utils/logger');
 // 创建Express应用
 const app = express();
 
+// 插件静态目录（须在 setupMiddlewares 之后挂载，否则先于 CORS 响应，浏览器从调试台跨域拉 manifest/JS 会缺 ACAO）
+const publicPluginsPath = path.join(__dirname, '../public/plugins');
+
 // 创建应用服务
 const appService = new ApplicationService(config);
+
+function mountIngressStripPrefix(expressApp, rawPrefix) {
+  const trimmed = rawPrefix && String(rawPrefix).trim();
+  if (!trimmed) return;
+  const prefix = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+  expressApp.use((req, res, next) => {
+    const pathOnly = req.path;
+    if (pathOnly === prefix || pathOnly.startsWith(`${prefix}/`)) {
+      const rest = pathOnly.slice(prefix.length) || '/';
+      const q = req.url.indexOf('?');
+      const qs = q >= 0 ? req.url.slice(q) : '';
+      req.url = rest + qs;
+    }
+    next();
+  });
+  logger.info(`Ingress strip prefix: ${prefix}`);
+}
 
 /**
  * 应用启动函数
@@ -34,9 +55,36 @@ const appService = new ApplicationService(config);
 async function startApp() {
   try {
     logger.info('🚀 启动 GeniSpace Custom Operators API...');
+
+    // 0. 若在网关后以子路径暴露（见 cicd Ingress），先剥掉前缀再匹配 /api、/static、/health
+    mountIngressStripPrefix(app, config.ingressStripPrefix);
+
+    if (config.security.trustProxy) {
+      app.set('trust proxy', true);
+    }
     
     // 1. 设置中间件
     setupMiddlewares(app, config);
+
+    // 1a. 开发模式：public/plugins 被 gitignore，且 nodemon 重启不会跑 npm pre 脚本；启动前同步 operators/**/plugin
+    if (config.isDevelopment) {
+      const repoRoot = path.join(__dirname, '..');
+      try {
+        execSync('node scripts/build-plugins.js', { cwd: repoRoot, stdio: 'pipe' });
+        logger.debug('开发模式已同步 Chat 插件 -> public/plugins');
+      } catch (err) {
+        const detail = err.stderr ? String(err.stderr) : err.message;
+        logger.warn('开发模式 build-plugins 失败；/static/plugins 下 manifest 可能 404', { error: detail });
+      }
+    }
+
+    // 1b. 托管各算子 Chat 插件静态资源（build:plugins 聚合到 public/plugins）
+    app.use('/static/plugins', express.static(publicPluginsPath, { fallthrough: true }));
+    // 网关对外路径含 apiPrefix（如 /operators/internal/static/plugins/...）且未剥前缀时，需同路径挂载
+    const apiPx = (config.apiPrefix && String(config.apiPrefix).replace(/\/$/, '')) || '';
+    if (apiPx) {
+      app.use(`${apiPx}/static/plugins`, express.static(publicPluginsPath, { fallthrough: true }));
+    }
     
     // 2. 初始化应用服务
     const operatorsDir = path.join(__dirname, '../operators');
@@ -69,9 +117,11 @@ async function startApp() {
         endpoints: stats.totalEndpoints
       });
       
-      logger.info(`📚 API 文档: http://${config.host}:${config.port}${config.apiPrefix}/docs`);
-      logger.info(`🔗 OpenAPI Schema: http://${config.host}:${config.port}${config.apiPrefix}/docs.json`);
-      logger.info(`🏥 健康检查: http://${config.host}:${config.port}/health`);
+      const publicRouteBase = config.getPublicRouteBaseUrl();
+      logger.info(`📚 API 文档: ${publicRouteBase}/docs`);
+      logger.info(`🔗 OpenAPI Schema: ${publicRouteBase}/docs.json`);
+      const probeHost = config.host === '0.0.0.0' ? 'localhost' : config.host;
+      logger.info(`🏥 健康检查: http://${probeHost}:${config.port}/health`);
     });
 
     // 优雅关闭处理

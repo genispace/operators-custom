@@ -1,0 +1,12 @@
+{
+  "name": "weather-forecast",
+  "version": "1.0.0",
+  "displayName": "Weather forecast (operators-internal)",
+  "description": "Remote plugin aligned with Chat weather-forecast operator.",
+  "author": "GeniSpace",
+  "main": "index.js",
+  "widget": "widget.js",
+  "rendererType": "weather-forecast",
+  "tags": ["operator", "weather"],
+  "minimumChatVersion": "1.0.0"
+}

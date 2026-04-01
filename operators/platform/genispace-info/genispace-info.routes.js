@@ -91,7 +91,7 @@ router.post('/agents', asyncHandler(async (req, res) => {
 
     // 检查是否已认证
     if (!req.genispace || !req.genispace.client) {
-      return sendErrorResponse(res, '需要认证才能访问此功能', 401, 'AUTHENTICATION_REQUIRED');
+      return sendErrorResponse(res, '需要认证才能访问此功能', 'AUTHENTICATION_REQUIRED', null, 401);
     }
 
     const { client, user } = req.genispace;
@@ -154,7 +154,7 @@ router.post('/agents', asyncHandler(async (req, res) => {
         agentType
       });
 
-      return sendErrorResponse(res, '获取智能体列表失败', 500, 'GET_AGENTS_ERROR');
+      return sendErrorResponse(res, '获取智能体列表失败', 'GET_AGENTS_ERROR', null, 500);
     }
 
   } catch (error) {
@@ -163,7 +163,7 @@ router.post('/agents', asyncHandler(async (req, res) => {
       stack: error ? error.stack : "No stack trace"
     });
 
-    return sendErrorResponse(res, '获取智能体列表失败', 500, 'GET_AGENTS_ERROR');
+    return sendErrorResponse(res, '获取智能体列表失败', 'GET_AGENTS_ERROR', null, 500);
   }
 }));
 

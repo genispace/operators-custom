@@ -1,0 +1,5 @@
+{
+  "watch": ["src", "operators", "scripts"],
+  "ext": "js,cjs,mjs,json",
+  "ignore": ["public/plugins/**", "**/node_modules/**"]
+}

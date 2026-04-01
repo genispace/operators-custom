@@ -6,6 +6,8 @@
  */
 
 const logger = require('../utils/logger');
+const { operatorMethods } = require('../utils/operator-definition');
+const { deriveOpenApiFromConfig } = require('../utils/derive-openapi-from-methods');
 
 class OperatorRegistry {
   constructor() {
@@ -36,6 +38,10 @@ class OperatorRegistry {
   register(operatorData) {
     try {
       const { config, routes, metadata } = operatorData;
+
+      if (!config.openapi?.paths && operatorMethods(config).length > 0) {
+        config.openapi = deriveOpenApiFromConfig(config);
+      }
       
       // 验证配置
       this._validateOperatorConfig(config);
