@@ -153,9 +153,33 @@ function setupApiDocs(app, appService, config) {
 
 /** Graceful HTTP shutdown and fatal process error logging. */
 function setupGracefulShutdown(server) {
+  let shutdownStarted = false;
+  const SHUTDOWN_FORCE_MS = 8000;
+
   const gracefulShutdown = (signal) => {
+    if (shutdownStarted) {
+      logger.info(`Received ${signal} again, forcing exit`);
+      process.exit(0);
+      return;
+    }
+    shutdownStarted = true;
     logger.info(`Received ${signal}, shutting down gracefully...`);
+
+    const t = setTimeout(() => {
+      logger.warn('Shutdown timeout (open connections); forcing exit');
+      process.exit(0);
+    }, SHUTDOWN_FORCE_MS);
+    t.unref();
+
+    // Without this, browser keep-alive sockets keep server.close() from finishing.
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    } else if (typeof server.closeIdleConnections === 'function') {
+      server.closeIdleConnections();
+    }
+
     server.close(() => {
+      clearTimeout(t);
       logger.info('HTTP server closed');
       process.exit(0);
     });
